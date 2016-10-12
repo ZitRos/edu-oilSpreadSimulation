@@ -1,0 +1,29 @@
+html, body {
+    background: #ccc;
+    color: #222;
+    font-family: fantasy;
+}
+
+.central {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    display: table;
+}
+
+.central > div {
+    display: table-cell;
+    vertical-align: middle;
+    text-align: center;
+}
+
+.central > div > div {
+    display: inline-block;
+}
+
+#layers {
+    background: #93b4ff;
+    box-shadow: 3px 3px 5px gray;
+}
