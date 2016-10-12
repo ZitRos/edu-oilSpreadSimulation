@@ -12,7 +12,11 @@ let layerStream = null,
     layerOil = null,
     streamCanvas = null,
     oilCanvas = null,
-    layersBlock = null;
+    layersBlock = null,
+    lastMousePos = { x: 0, y: 0 },
+    creatingOil = false;
+
+let SIM_SPEED = 0.1;
 
 function init () {
 
@@ -65,13 +69,20 @@ function init () {
     layersBlock.appendChild(layerStream);
     redrawStreams();
 
-    let pressed = false;
-    layersBlock.addEventListener(`mousedown`, (e) => pressed = true);
-    layersBlock.addEventListener(`mousemove`, (e) => {
-        if (!pressed) return;
-        addOil(e.offsetX, e.offsetY);
+    layersBlock.addEventListener(`mousedown`, (e) => {
+        creatingOil = true;
+        lastMousePos.x = e.offsetX;
+        lastMousePos.y = e.offsetY;
     });
-    layersBlock.addEventListener(`mouseup`, (e) => pressed = false);
+    layersBlock.addEventListener(`mousemove`, (e) => {
+        lastMousePos.x = e.offsetX;
+        lastMousePos.y = e.offsetY;
+    });
+    layersBlock.addEventListener(`mouseup`, (e) => {
+        creatingOil = false;
+        lastMousePos.x = e.offsetX;
+        lastMousePos.y = e.offsetY;
+    });
     let time = Date.now();
     setInterval(() => {
         let now = Date.now();
@@ -81,8 +92,57 @@ function init () {
 
 }
 
-function step (deltaTime) { // delta time should be 1 if FPS = real FPS.
+function calculateSpeed (x, y) {
+    let sx = Math.floor(x / STEP),
+        sy = Math.floor(y / STEP);
+    if (sx * STEP === x && sy * STEP === y)
+        return { dx: flow[sy][sx].dx, dy: flow[sy][sx].dy };
+    let isBottomTriangle = x + y > (sx + 1) * STEP + sy * STEP,
+        sxA = isBottomTriangle ? sx + 1 : sx,
+        syA = isBottomTriangle ? sy + 1 : sy,
+        xA = sxA * STEP, yA = syA * STEP,
+        xB = sx * STEP,
+        xC = (sx + 1) * STEP,
+        a = { dx: flow[syA][sx].dx, dy: flow[syA][sx].dy },
+        b = { dx: flow[sy + 1][sx].dx, dy: flow[sy + 1][sx].dy },
+        c = { dx: flow[sy][sx + 1].dx, dy: flow[sy][sx + 1].dy },
+        K = interceptionPoint(
+            { x: xA, y: yA },
+            { x, y },
+            { x: sx * STEP, y: (sy + 1) * STEP },
+            { x: (sx + 1) * STEP, y: sy * STEP }
+        );
+    let alpha = (K.x - xB) / (xC - xB),
+        alphaK = K.x - xA !== 0 ? (x - xA) / (K.x - xA)
+            : (K.y - yA !== 0) ? (y - yA) / (K.y - yA) : 0,
+        k = { dx: b.dx + (c.dx - b.dx) * alpha, dy: b.dy + (c.dy - b.dy) * alpha };
+    let c1 = a.dx + (k.dx - a.dx) * alphaK,
+        c2 = a.dy + (k.dy - a.dy) * alphaK;
+    if (typeof c1 !== "number" || typeof c2 !== "number" || isNaN(c1) || isNaN(c2)) {
+        console.error(`E: x=${ x }, y=${ y }, c1=${c1}, c2=${c2}, alpha=${alpha}, K={x:${ K.x 
+            },y:${K.y}}, xA:${xA}, yA:${yA}, x:${x}, y:${y}, sx=${sx*STEP},x=${x}, sy=${sy*STEP
+            },y=${y}`); // should never happen though...
+        return { dx: flow[sy][sx].dx, dy: flow[sy][sx].dy };
+    }
+    return {
+        dx: a.dx + (k.dx - a.dx) * alphaK,
+        dy: a.dy + (k.dy - a.dy) * alphaK
+    }
+}
 
+function step (deltaTime) { // delta time should be 1 if FPS = real FPS.
+    if (creatingOil)
+        addOil(lastMousePos.x, lastMousePos.y);
+    for (let i = 0; i < oil.length; i++) {
+        let speed = calculateSpeed(oil[i].x, oil[i].y);
+        oil[i].x += speed.dx * deltaTime * SIM_SPEED;
+        oil[i].y += speed.dy * deltaTime * SIM_SPEED;
+        if (oil[i].x < 0 || oil[i].y < 0
+            || oil[i].x + STEP > FIELD_WIDTH || oil[i].y + STEP > FIELD_HEIGHT) {
+            oil.splice(i, 1);
+            i--;
+        }
+    }
     redrawOil();
 }
 
@@ -117,7 +177,7 @@ function redrawStreams () {
 
 function redrawOil () {
     oilCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
-    oilCanvas.fillStyle = `rgba(0,0,0,0.5)`;
+    oilCanvas.fillStyle = `rgba(0,0,0,0.3)`;
     for (let i = 0; i < oil.length; i++) {
         oilCanvas.beginPath();
         oilCanvas.arc(oil[i].x, oil[i].y, 3, 0, 2*Math.PI);
@@ -133,6 +193,22 @@ function getNewCanvas () {
     c.setAttribute("width", (W - 1) * STEP);
     c.setAttribute("height", (H - 1) * STEP);
     return c;
+}
+
+function interceptionPoint (A, B, C, D) {
+    let a = { x: B.y - A.y, y: D.y - C.y },
+        b = { x: A.x - B.x, y: C.x - D.x },
+        c = {
+            x: -((B.x - A.x) * A.y - (B.y - A.y) * A.x),
+            y: -((D.x - C.x) * C.y - (D.y - C.y) * C.x)
+        },
+        d = a.x * b.y - b.x * a.y,
+        d1 = c.x * b.y - b.x * c.y,
+        d2 = a.x * c.y - c.x * a.y;
+    return {
+        x: d1 / d,
+        y: d2 / d
+    }
 }
 
 function canvasArrow (context, fromx, fromy, tox, toy) {
