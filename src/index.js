@@ -4,9 +4,13 @@ const
     STEP = 20,
     W = Math.floor(FIELD_WIDTH/STEP),
     H = Math.floor(FIELD_HEIGHT/STEP),
-    flow = [], // [][] { dx, dy }
-    oil = [], // [] { x, y, [density] }
-    FPS = 50;
+    field = [], // [][] { dx, dy, h }
+    oil = [], // [] { x, y, h, m } // x, y, height, mass
+    FPS = 50,
+    MAX_DEPTH = 200,
+    MAX_SPEED = STEP,
+    HEIGHTS_BLOCK_HEIGHT = 100,
+    LIGHT_AMOUNT = 0.8;
 
 let layerStream = null,
     layerOil = null,
@@ -14,30 +18,36 @@ let layerStream = null,
     oilCanvas = null,
     layersBlock = null,
     lastMousePos = { x: 0, y: 0 },
-    creatingOil = false;
+    creatingOil = false,
+    heightsBlock = null,
+    layerHeights = null,
+    heightsCanvas = null,
+    layerTerrain = null,
+    terrainCanvas = null;
 
-let SIM_SPEED = 0.1;
+let SIM_SPEED = 0.05;
 
 function init () {
 
-    // pseudo-random flow generation
-    const MAX_SPEED = STEP, RANDOM_FACTOR = 3, VORTEX_FACTOR = 4;
+    // pseudo-random field generation
+    const RANDOM_FACTOR = 3, VORTEX_FACTOR = 5, HEIGHT_FACTOR = 20;
     let dirFactor = Math.random() > 0.5 ? 1 : -1,
         dir = Math.random();
     layersBlock = document.getElementById("layers");
     for (let i = 0; i < H; i++) {
-        flow[i] = [];
+        field[i] = [];
         for (let j = 0; j < W; j++) {
-            let a = (flow[i - 1] || [])[j] || {},
-                b = (flow[i - 1] || [])[j - 1] || {},
-                c = (flow[i] || [])[j - 1] || {};
+            let a = (field[i - 1] || [])[j] || {},
+                b = (field[i - 1] || [])[j - 1] || {},
+                c = (field[i] || [])[j - 1] || {};
             dirFactor = Math.random() > 0.95 ? -dirFactor : dirFactor;
             dir += 0.3 * dirFactor * (Math.random() + 0.3);
             if (a.dx || b.dx || c.dx) {
                 let valDX = ((a.dx || 0) + (b.dx || 0) + (c.dx || 0)) / (!!a.dx + !!b.dx + !!c.dx),
-                    valDY = ((a.dy || 0) + (b.dy || 0) + (c.dy || 0)) / (!!a.dy + !!b.dy + !!c.dy);
+                    valDY = ((a.dy || 0) + (b.dy || 0) + (c.dy || 0)) / (!!a.dy + !!b.dy + !!c.dy),
+                    valH = ((a.h || 0) + (b.h || 0) + (c.h || 0)) / (!!a.h + !!b.h + !!c.h);
                 // console.log(valDX, valDY);
-                flow[i][j] = {
+                field[i][j] = {
                     dx: Math.min(Math.max(-MAX_SPEED,
                         valDX
                             + (Math.random()*RANDOM_FACTOR*2 - RANDOM_FACTOR)
@@ -47,12 +57,17 @@ function init () {
                         valDY
                             + (Math.random()*RANDOM_FACTOR*2 - RANDOM_FACTOR)
                             + VORTEX_FACTOR*Math.sin(dir))
-                        , MAX_SPEED)
+                        , MAX_SPEED),
+                    h: Math.min(Math.max(1,
+                        valH
+                            + (Math.random()*HEIGHT_FACTOR*2 - HEIGHT_FACTOR)
+                    ), MAX_DEPTH)
                 }
             } else {
-                flow[i][j] = {
+                field[i][j] = {
                     dx: Math.random() * MAX_SPEED * 2 - MAX_SPEED,
-                    dy: Math.random() * MAX_SPEED * 2 - MAX_SPEED
+                    dy: Math.random() * MAX_SPEED * 2 - MAX_SPEED,
+                    h: Math.random() * MAX_DEPTH
                 }
             }
         }
@@ -60,14 +75,23 @@ function init () {
 
     layersBlock.style.width = `${ (W - 1) * STEP }px`;
     layersBlock.style.height = `${ (H - 1) * STEP }px`;
+    heightsBlock = document.getElementById("heights");
+    heightsBlock.style.height = `${ HEIGHTS_BLOCK_HEIGHT }px`;
     layerStream = getNewCanvas();
     layerStream.style.opacity = 0.3;
+    layerTerrain = getNewCanvas();
+    terrainCanvas = layerTerrain.getContext("2d");
     streamCanvas = layerStream.getContext("2d");
+    layerHeights = getNewCanvas(FIELD_WIDTH, HEIGHTS_BLOCK_HEIGHT);
+    heightsCanvas = layerHeights.getContext("2d");
     layerOil = getNewCanvas();
     oilCanvas = layerOil.getContext("2d");
-    layersBlock.appendChild(layerOil);
+    layersBlock.appendChild(layerTerrain);
     layersBlock.appendChild(layerStream);
+    layersBlock.appendChild(layerOil);
+    heightsBlock.appendChild(layerHeights);
     redrawStreams();
+    redrawTerrain();
 
     layersBlock.addEventListener(`mousedown`, (e) => {
         creatingOil = true;
@@ -92,20 +116,24 @@ function init () {
 
 }
 
-function calculateSpeed (x, y) {
+function getMedianPoint (x, y) {
     let sx = Math.floor(x / STEP),
         sy = Math.floor(y / STEP);
     if (sx * STEP === x && sy * STEP === y)
-        return { dx: flow[sy][sx].dx, dy: flow[sy][sx].dy };
+        return { dx: field[sy][sx].dx, dy: field[sy][sx].dy, h: field[sy][sx].h };
     let isBottomTriangle = x + y > (sx + 1) * STEP + sy * STEP,
         sxA = isBottomTriangle ? sx + 1 : sx,
         syA = isBottomTriangle ? sy + 1 : sy,
         xA = sxA * STEP, yA = syA * STEP,
         xB = sx * STEP,
         xC = (sx + 1) * STEP,
-        a = { dx: flow[syA][sx].dx, dy: flow[syA][sx].dy },
-        b = { dx: flow[sy + 1][sx].dx, dy: flow[sy + 1][sx].dy },
-        c = { dx: flow[sy][sx + 1].dx, dy: flow[sy][sx + 1].dy },
+        a = { dx: field[syA][sx].dx, dy: field[syA][sx].dy, h: field[syA][sx].h },
+        b = { dx: field[sy + 1][sx].dx, dy: field[sy + 1][sx].dy, h: field[sy + 1][sx].h },
+        c = {
+            dx: (field[sy][sx + 1] || field[sy][sx]).dx,
+            dy: (field[sy][sx + 1] || field[sy][sx]).dy,
+            h: (field[sy][sx + 1] || field[sy][sx]).h
+        },
         K = interceptionPoint(
             { x: xA, y: yA },
             { x, y },
@@ -115,18 +143,23 @@ function calculateSpeed (x, y) {
     let alpha = (K.x - xB) / (xC - xB),
         alphaK = K.x - xA !== 0 ? (x - xA) / (K.x - xA)
             : (K.y - yA !== 0) ? (y - yA) / (K.y - yA) : 0,
-        k = { dx: b.dx + (c.dx - b.dx) * alpha, dy: b.dy + (c.dy - b.dy) * alpha };
+        k = {
+            dx: b.dx + (c.dx - b.dx) * alpha,
+            dy: b.dy + (c.dy - b.dy) * alpha,
+            h: b.h + (c.h - b.h) * alpha
+        };
     let c1 = a.dx + (k.dx - a.dx) * alphaK,
         c2 = a.dy + (k.dy - a.dy) * alphaK;
     if (typeof c1 !== "number" || typeof c2 !== "number" || isNaN(c1) || isNaN(c2)) {
         console.error(`E: x=${ x }, y=${ y }, c1=${c1}, c2=${c2}, alpha=${alpha}, K={x:${ K.x 
             },y:${K.y}}, xA:${xA}, yA:${yA}, x:${x}, y:${y}, sx=${sx*STEP},x=${x}, sy=${sy*STEP
             },y=${y}`); // should never happen though...
-        return { dx: flow[sy][sx].dx, dy: flow[sy][sx].dy };
+        return { dx: field[sy][sx].dx, dy: field[sy][sx].dy };
     }
     return {
         dx: a.dx + (k.dx - a.dx) * alphaK,
-        dy: a.dy + (k.dy - a.dy) * alphaK
+        dy: a.dy + (k.dy - a.dy) * alphaK,
+        h: a.h + (k.h - a.h) * alphaK
     }
 }
 
@@ -134,26 +167,51 @@ function step (deltaTime) { // delta time should be 1 if FPS = real FPS.
     if (creatingOil)
         addOil(lastMousePos.x, lastMousePos.y);
     for (let i = 0; i < oil.length; i++) {
-        let speed = calculateSpeed(oil[i].x, oil[i].y);
-        oil[i].x += speed.dx * deltaTime * SIM_SPEED;
-        oil[i].y += speed.dy * deltaTime * SIM_SPEED;
-        if (oil[i].x < 0 || oil[i].y < 0
-            || oil[i].x + STEP > FIELD_WIDTH || oil[i].y + STEP > FIELD_HEIGHT) {
+        for (let j = 0; j < oil.length; j++) {
+            if (i === j) continue;
+            let d = distance(oil[i], oil[j]);
+            if (d > 3) continue;
+            let dir = Math.atan2(-(oil[j].x - oil[i].x), (oil[j].y - oil[i].y)),
+                v = (3 - d)/2,
+                vx = v * Math.cos(dir),
+                vy = v * Math.sin(dir);
+            oil[i].x += vx;
+            oil[i].y += vy;
+            oil[j].x -= vx;
+            oil[j].y -= vy;
+        }
+    }
+    for (let i = 0; i < oil.length; i++) {
+        let median = getMedianPoint(oil[i].x, oil[i].y);
+        if (median.h > oil[i].h) {
+            oil[i].x += median.dx * deltaTime * SIM_SPEED;
+            oil[i].y += median.dy * deltaTime * SIM_SPEED;
+            oil[i].h += oil[i].m * (Math.random() / 5 + 0.2) * (SIM_SPEED * 10);
+            oil[i].h = Math.min(median.h, oil[i].h);
+        }
+        if (oil[i].x <= 1 || oil[i].y <= 1
+            || oil[i].x + STEP >= FIELD_WIDTH - 1 || oil[i].y + STEP >= FIELD_HEIGHT - 1) {
             oil.splice(i, 1);
             i--;
         }
     }
     redrawOil();
+    redrawHeights(lastMousePos.y);
+    redrawCursor();
 }
 
 function addOil (x, y) {
     for (let i = 0; i < oil.length; i++) {
         if (oil[i].x === x && oil[i].y === y) return;
     }
-    oil.push({ x, y });
+    oil.push({ x, y, h: 0, m: Math.random() < LIGHT_AMOUNT ? 0 : Math.random() });
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+function distance (oil1, oil2) {
+    return Math.sqrt(Math.pow(oil1.x - oil2.x, 2) + Math.pow(oil1.y - oil2.y, 2) + Math.pow(oil1.h - oil2.h, 2));
+}
 
 function redrawStreams () {
     streamCanvas.strokeStyle = `black`;
@@ -167,31 +225,97 @@ function redrawStreams () {
                 streamCanvas,
                 x * STEP,
                 y * STEP,
-                x * STEP + flow[y][x].dx,
-                y * STEP + flow[y][x].dy
+                x * STEP + field[y][x].dx,
+                y * STEP + field[y][x].dy
             );
             streamCanvas.closePath();
         }
     }
 }
 
-function redrawOil () {
-    oilCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
-    oilCanvas.fillStyle = `rgba(0,0,0,0.3)`;
+function redrawHeights (y = lastMousePos.y) {
+    const OIL_VIEW_DISTANCE = 60;
+    heightsCanvas.clearRect(0, 0, FIELD_WIDTH, HEIGHTS_BLOCK_HEIGHT);
+    heightsCanvas.fillStyle = `brown`;
+    heightsCanvas.beginPath();
+    let fp = getMedianPoint(0, y);
+    heightsCanvas.moveTo(0, (fp.h / MAX_DEPTH) * HEIGHTS_BLOCK_HEIGHT);
+    for (let x = 1; x < W; x++) {
+        let median = getMedianPoint(x * STEP, y);
+        median.h = (median.h / MAX_DEPTH) * HEIGHTS_BLOCK_HEIGHT;
+        heightsCanvas.lineTo(x * STEP, median.h);
+        // heightsCanvas.moveTo(x * STEP, median.h);
+    }
+    heightsCanvas.lineTo(FIELD_WIDTH - STEP, HEIGHTS_BLOCK_HEIGHT);
+    // heightsCanvas.moveTo(FIELD_WIDTH - STEP, HEIGHTS_BLOCK_HEIGHT);
+    heightsCanvas.lineTo(0, HEIGHTS_BLOCK_HEIGHT);
+    // heightsCanvas.moveTo(0, HEIGHTS_BLOCK_HEIGHT);
+    heightsCanvas.lineTo(0, (fp.h / MAX_DEPTH) * HEIGHTS_BLOCK_HEIGHT);
+    heightsCanvas.closePath();
+    heightsCanvas.fill();
+
     for (let i = 0; i < oil.length; i++) {
-        oilCanvas.beginPath();
-        oilCanvas.arc(oil[i].x, oil[i].y, 3, 0, 2*Math.PI);
-        streamCanvas.closePath();
-        oilCanvas.fill();
+        let alpha = OIL_VIEW_DISTANCE - Math.min(OIL_VIEW_DISTANCE, Math.abs(oil[i].y - y));
+        heightsCanvas.beginPath();
+        heightsCanvas.fillStyle = `rgba(0,0,0,${ Math.round(alpha) / OIL_VIEW_DISTANCE })`;
+        heightsCanvas.arc(oil[i].x, (oil[i].h / MAX_DEPTH) * HEIGHTS_BLOCK_HEIGHT, 3, 0, 2*Math.PI);
+        heightsCanvas.fill();
+        heightsCanvas.closePath();
     }
 }
 
-function getNewCanvas () {
+function redrawOil () {
+    oilCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
+    for (let i = 0; i < oil.length; i++) {
+        let alpha = 1 - (MAX_DEPTH - Math.min(MAX_DEPTH, oil[i].h)) / MAX_DEPTH;
+        oilCanvas.beginPath();
+        oilCanvas.fillStyle = `rgba(0,0,0,${ 0.5 - alpha/3 })`;
+        oilCanvas.arc(oil[i].x, oil[i].y, 3, 0, 2*Math.PI);
+        oilCanvas.fill();
+        oilCanvas.closePath();
+    }
+}
+
+function redrawCursor () {
+    oilCanvas.beginPath();
+    oilCanvas.strokeStyle = `rgba(255,0,0,0.3)`;
+    oilCanvas.moveTo(0, lastMousePos.y);
+    oilCanvas.lineTo(FIELD_WIDTH, lastMousePos.y);
+    oilCanvas.closePath();
+    oilCanvas.stroke();
+}
+
+function redrawTerrain () {
+    let col;
+    terrainCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
+    for (let y = 0; y < H - 1; y++) {
+        for (let x = 0; x < W - 1; x++) {
+            terrainCanvas.beginPath();
+            terrainCanvas.moveTo(x * STEP, y * STEP);
+            terrainCanvas.lineTo((x + 1) * STEP, y * STEP);
+            terrainCanvas.lineTo((x + 1) * STEP, (y + 1) * STEP);
+            col = Math.round(128 * field[y][x + (y % 2)].h / MAX_DEPTH);
+            terrainCanvas.fillStyle = `rgb(${ 255 - col * 2 },${ 255 - col },255)`;
+            terrainCanvas.closePath();
+            terrainCanvas.fill();
+            terrainCanvas.beginPath();
+            terrainCanvas.moveTo(x * STEP, y * STEP);
+            terrainCanvas.lineTo(x * STEP, (y + 1) * STEP);
+            terrainCanvas.lineTo((x + 1) * STEP, (y + 1) * STEP);
+            col = Math.round(128 * field[y + 1][x + (y % 2)].h / MAX_DEPTH);
+            terrainCanvas.fillStyle = `rgb(${ 255 - col * 2 },${ 255 - col },255)`;
+            terrainCanvas.closePath();
+            terrainCanvas.fill();
+        }
+    }
+}
+
+function getNewCanvas (WW = (W - 1) * STEP, HH = (H - 1) * STEP) {
     let c = document.createElement("canvas");
-    c.style.width = (W - 1) * STEP;
-    c.style.height = (H - 1) * STEP;
-    c.setAttribute("width", (W - 1) * STEP);
-    c.setAttribute("height", (H - 1) * STEP);
+    c.style.width = `${ WW }px`;
+    c.style.height = `${ HH }px`;
+    c.setAttribute("width", WW);
+    c.setAttribute("height", HH);
     return c;
 }
 

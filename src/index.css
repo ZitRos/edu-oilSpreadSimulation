@@ -26,12 +26,14 @@ html, body {
 
 #layers {
     position: relative;
+    top: -50px;
     background: #93b4ff;
     box-shadow: 3px 3px 5px gray;
     -webkit-user-select: none;  /* Chrome all / Safari all */
     -moz-user-select: none;     /* Firefox all */
     -ms-user-select: none;      /* IE 10+ */
     user-select: none;          /* Likely future */
+    cursor: pointer;
 }
 
 #layers > canvas {
@@ -44,9 +46,34 @@ html, body {
 
 #layers > .sub {
     position: absolute;
-    bottom: -30px;
+    top: -30px;
     left: 0;
     right: 0;
     text-align: center;
     text-shadow: 1px 1px white;
+}
+
+#cursor {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    border-bottom: 1px solid rgba(255, 50, 50, 0.5);
+    z-index: 1;
+}
+
+#heights {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -120px;
+    height: 100px;
+    box-shadow: 3px 3px 5px gray;
+    z-index: 0;
+    /* Permalink - use to edit and share this gradient: http://colorzilla.com/gradient-editor/#f0f9ff+0,0055ff+100 */
+    background: #f0f9ff; /* Old browsers */
+    background: -moz-linear-gradient(top,  #f0f9ff 0%, #0055ff 100%); /* FF3.6-15 */
+    background: -webkit-linear-gradient(top,  #f0f9ff 0%,#0055ff 100%); /* Chrome10-25,Safari5.1-6 */
+    background: linear-gradient(to bottom,  #f0f9ff 0%,#0055ff 100%); /* W3C, IE10+, FF16+, Chrome26+, Opera12+, Safari7+ */
+    filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#f0f9ff', endColorstr='#0055ff',GradientType=0 ); /* IE6-9 */
 }

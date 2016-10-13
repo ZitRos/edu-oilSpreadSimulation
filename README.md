@@ -2,8 +2,16 @@
 
 The simple simulator of the oil spread in the water.
 
+This projects considers the depth level of the ocean, streams flow and
+has a pseudo-random algorithm of flow and terrain generation.
+
 # Preview
 
-![Screenshot](https://cloud.githubusercontent.com/assets/4989256/19321674/a1902314-90be-11e6-87dc-372e7520ee72.png)
+![Screenshot](https://cloud.githubusercontent.com/assets/4989256/19352636/30e63422-9169-11e6-94be-360fde0f6251.png)
 
-![Screenshot2](https://cloud.githubusercontent.com/assets/4989256/19328685/82b362ac-90dd-11e6-8516-5c3324921a6b.png)
+# Installation & Usage
+
+Download or clone the repository and open the `index.html` file in any
+browser. Then click on the field to add some oil and see how it spreads.
+Move the mouse to see the depth level, visualized by the level of the
+red strip.
