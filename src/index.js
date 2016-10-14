@@ -93,16 +93,16 @@ function init () {
     redrawStreams();
     redrawTerrain();
 
-    layersBlock.addEventListener(`mousedown`, (e) => {
+    layerOil.addEventListener(`mousedown`, (e) => {
         creatingOil = true;
         lastMousePos.x = e.offsetX;
         lastMousePos.y = e.offsetY;
     });
-    layersBlock.addEventListener(`mousemove`, (e) => {
+    layerOil.addEventListener(`mousemove`, (e) => {
         lastMousePos.x = e.offsetX;
         lastMousePos.y = e.offsetY;
     });
-    layersBlock.addEventListener(`mouseup`, (e) => {
+    layerOil.addEventListener(`mouseup`, (e) => {
         creatingOil = false;
         lastMousePos.x = e.offsetX;
         lastMousePos.y = e.offsetY;
@@ -278,11 +278,17 @@ function redrawOil () {
 
 function redrawCursor () {
     oilCanvas.beginPath();
-    oilCanvas.strokeStyle = `rgba(255,0,0,0.3)`;
+    oilCanvas.strokeStyle = `rgba(255,0,0,0.2)`;
     oilCanvas.moveTo(0, lastMousePos.y);
     oilCanvas.lineTo(FIELD_WIDTH, lastMousePos.y);
     oilCanvas.closePath();
     oilCanvas.stroke();
+    heightsCanvas.beginPath();
+    heightsCanvas.strokeStyle = `rgba(0,255,0,0.3)`;
+    heightsCanvas.moveTo(lastMousePos.x, 0);
+    heightsCanvas.lineTo(lastMousePos.x, FIELD_HEIGHT);
+    heightsCanvas.closePath();
+    heightsCanvas.stroke();
 }
 
 function redrawTerrain () {
@@ -294,7 +300,9 @@ function redrawTerrain () {
             terrainCanvas.moveTo(x * STEP, y * STEP);
             terrainCanvas.lineTo((x + 1) * STEP, y * STEP);
             terrainCanvas.lineTo((x + 1) * STEP, (y + 1) * STEP);
-            col = Math.round(128 * field[y][x + (y % 2)].h / MAX_DEPTH);
+            col = Math.round(
+                128 * getMedianPoint(x * STEP + STEP * 0.75, y * STEP + STEP * 0.25).h / MAX_DEPTH
+            );
             terrainCanvas.fillStyle = `rgb(${ 255 - col * 2 },${ 255 - col },255)`;
             terrainCanvas.closePath();
             terrainCanvas.fill();
@@ -302,7 +310,9 @@ function redrawTerrain () {
             terrainCanvas.moveTo(x * STEP, y * STEP);
             terrainCanvas.lineTo(x * STEP, (y + 1) * STEP);
             terrainCanvas.lineTo((x + 1) * STEP, (y + 1) * STEP);
-            col = Math.round(128 * field[y + 1][x + (y % 2)].h / MAX_DEPTH);
+            col = Math.round(
+                128 * getMedianPoint(x * STEP + STEP * 0.25, y * STEP + STEP * 0.75).h / MAX_DEPTH
+            );
             terrainCanvas.fillStyle = `rgb(${ 255 - col * 2 },${ 255 - col },255)`;
             terrainCanvas.closePath();
             terrainCanvas.fill();
