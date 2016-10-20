@@ -2,6 +2,8 @@
 
 The simple simulator of the oil spread in the water.
 
+[Play the DEMO here.](https://zitros.github.io/edu-oilSpreadSimulation/src/)
+
 This projects considers the depth level of the ocean, streams flow and
 has a pseudo-random algorithm of flow and terrain generation.
 
