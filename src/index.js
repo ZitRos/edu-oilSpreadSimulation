@@ -4,7 +4,6 @@ const
     STEP = 20,
     W = Math.floor(FIELD_WIDTH/STEP),
     H = Math.floor(FIELD_HEIGHT/STEP),
-    field = [], // [][] { dx, dy, h }
     oil = [], // [] { x, y, h, m } // x, y, height, mass
     FPS = 50,
     MAX_DEPTH = 200,
@@ -12,14 +11,15 @@ const
     MAX_SPEED = STEP,
     HEIGHTS_BLOCK_HEIGHT = 150,
     LIGHT_AMOUNT = 0.8,
-    OIL_DOT_RADIUS = 4;
+    OIL_DOT_RADIUS = 9;
 
-let layerStream = null,
+let lastMousePos = { x: 0, y: 0 },
+    field = [], // [][] { dx, dy, h },
+    layerStream = null,
     layerOil = null,
     streamCanvas = null,
     oilCanvas = null,
     layersBlock = null,
-    lastMousePos = { x: 0, y: 0 },
     creatingOil = false,
     heightsBlock = null,
     layerHeights = null,
@@ -29,21 +29,17 @@ let layerStream = null,
     topGradientBlock = null,
     bottomGradientBlock = null,
     simSpeedSlider = null,
-    simSpeedLabel = null;
+    simSpeedLabel = null,
+    tempCanvas = null;
 
 let SIM_SPEED = 0.05;
 
-function init () {
-
-    simSpeedLabel = document.getElementById(`simSpeed`);
-    simSpeedSlider = document.getElementById("simSpeedSlider");
-    simSpeedSlider.addEventListener(`input`, updateSimSpeed);
-    updateSimSpeed();
-    // pseudo-random field generation
+// pseudo-random field generation
+function generateField () {
     const RANDOM_FACTOR = 3, VORTEX_FACTOR = 5, DEEP_FACTOR = 40, HEIGHT_FACTOR = 5;
     let dirFactor = Math.random() > 0.5 ? 1 : -1,
-        dir = Math.random();
-    layersBlock = document.getElementById("layers");
+        dir = Math.random(),
+        field = [];
     for (let i = 0; i < H; i++) {
         field[i] = [];
         for (let j = 0; j < W; j++) {
@@ -64,12 +60,12 @@ function init () {
                 // console.log(valDX, valDY);
                 field[i][j] = {
                     dx: h <= 0 ? 0 : Math.min(Math.max(-MAX_SPEED,
-                        valDX
+                            valDX
                             + (Math.random()*RANDOM_FACTOR*2 - RANDOM_FACTOR)
                             + VORTEX_FACTOR*Math.cos(dir))
                         , MAX_SPEED) * (valH < MAX_DEPTH / 20 ? 0.1 : 1),
                     dy: h <= 0 ? 0 : Math.min(Math.max(-MAX_SPEED,
-                        valDY
+                            valDY
                             + (Math.random()*RANDOM_FACTOR*2 - RANDOM_FACTOR)
                             + VORTEX_FACTOR*Math.sin(dir))
                         , MAX_SPEED) * (valH < MAX_DEPTH / 20 ? 0.1 : 1),
@@ -84,6 +80,19 @@ function init () {
             }
         }
     }
+    return field;
+}
+
+function init () {
+
+    layersBlock = document.getElementById("layers");
+    simSpeedLabel = document.getElementById(`simSpeed`);
+    simSpeedSlider = document.getElementById("simSpeedSlider");
+    simSpeedSlider.addEventListener(`input`, updateSimSpeed);
+    updateSimSpeed();
+
+    // oilContainer = document.getElementById("oil");
+    field = generateField();
 
     layersBlock.style.width = `${ (W - 1) * STEP }px`;
     layersBlock.style.height = `${ (H - 1) * STEP }px`;
@@ -96,6 +105,7 @@ function init () {
     bottomGradientBlock = document.getElementById(`bottomGradient`);
     bottomGradientBlock.style.top = `${ hPoint }%`;
     bottomGradientBlock.style.height = `${ 100 - hPoint }%`;
+    tempCanvas = getNewCanvas().getContext("2d");
     layerStream = getNewCanvas();
     layerStream.style.opacity = 0.3;
     layerTerrain = getNewCanvas();
@@ -104,6 +114,7 @@ function init () {
     layerHeights = getNewCanvas(FIELD_WIDTH, HEIGHTS_BLOCK_HEIGHT);
     heightsCanvas = layerHeights.getContext("2d");
     layerOil = getNewCanvas();
+    layerOil.style.filter = "blur(1px)";
     oilCanvas = layerOil.getContext("2d");
     layersBlock.appendChild(layerTerrain);
     layersBlock.appendChild(layerStream);
@@ -112,6 +123,8 @@ function init () {
     redrawStreams();
     redrawTerrain();
 
+    // layerOil.style.opacity = 0;
+    // layerOil.style.zIndex = 10000;
     layerOil.addEventListener(`mousedown`, (e) => {
         creatingOil = true;
         lastMousePos.x = e.offsetX;
@@ -187,21 +200,6 @@ function step (deltaTime) { // delta time should be 1 if FPS = real FPS.
     if (creatingOil)
         addOil(lastMousePos.x, lastMousePos.y);
     for (let i = 0; i < oil.length; i++) {
-        for (let j = 0; j < oil.length; j++) {
-            if (i === j) continue;
-            let d = distance(oil[i], oil[j]);
-            if (d > OIL_DOT_RADIUS) continue;
-            let dir = Math.atan2(-(oil[j].x - oil[i].x), (oil[j].y - oil[i].y)),
-                v = (OIL_DOT_RADIUS - d)/2,
-                vx = v * Math.cos(dir),
-                vy = v * Math.sin(dir);
-            oil[i].x += vx;
-            oil[i].y += vy;
-            oil[j].x -= vx;
-            oil[j].y -= vy;
-        }
-    }
-    for (let i = 0; i < oil.length; i++) {
         let median = getMedianPoint(oil[i].x, oil[i].y);
         if (median.h > oil[i].h) {
             oil[i].x += median.dx * deltaTime * SIM_SPEED;
@@ -209,8 +207,23 @@ function step (deltaTime) { // delta time should be 1 if FPS = real FPS.
             oil[i].h += oil[i].m * (Math.random() / 5 + 0.2) * (SIM_SPEED * 10);
             oil[i].h = Math.min(median.h, oil[i].h);
         }
+        for (let j = 0; j < oil.length; j++) {
+            if (i === j) continue;
+            let d = distance(oil[i], oil[j]);
+            if (d > OIL_DOT_RADIUS) continue;
+            let dir = Math.atan2(-(oil[j].x - oil[i].x), (oil[j].y - oil[i].y)),
+                v = (OIL_DOT_RADIUS - d)/1.8,
+                vx = v * Math.cos(dir),
+                vy = v * Math.sin(dir);
+            oil[i].x += vx;
+            oil[i].y += vy;
+            oil[j].x -= vx;
+            oil[j].y -= vy;
+        }
         if (oil[i].x <= 1 || oil[i].y <= 1
             || oil[i].x + STEP >= FIELD_WIDTH - 1 || oil[i].y + STEP >= FIELD_HEIGHT - 1) {
+            // if (oil[i].element.parentNode)
+            //     oil[i].element.parentNode.removeChild(oil[i].element);
             oil.splice(i, 1);
             i--;
         }
@@ -225,7 +238,12 @@ function addOil (x, y) {
         if (oil[i].x === x && oil[i].y === y) return;
     }
     let p = getMedianPoint(x, y);
-    oil.push({ x, y, h: Math.min(0, p.h), m: Math.random() < LIGHT_AMOUNT ? 0 : Math.random() });
+        // el = document.createElement(`div`);
+    // oilContainer.appendChild(el);
+    oil.push({
+        x, y, h: Math.min(0, p.h), m: Math.random() < LIGHT_AMOUNT ? 0 : Math.random()
+        // element: el
+    });
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -297,15 +315,33 @@ function redrawHeights (y = lastMousePos.y) {
 }
 
 function redrawOil () {
+    tempCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
     oilCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
     for (let i = 0; i < oil.length; i++) {
-        let alpha = 1 - (MAX_DEPTH - Math.min(MAX_DEPTH, oil[i].h)) / MAX_DEPTH;
-        oilCanvas.beginPath();
-        oilCanvas.fillStyle = `rgba(0,0,0,${ 0.5 - alpha/3 })`;
-        oilCanvas.arc(oil[i].x, oil[i].y, OIL_DOT_RADIUS, 0, 2*Math.PI);
-        oilCanvas.fill();
-        oilCanvas.closePath();
+        let alpha = (1 - Math.max(0, oil[i].h) / MAX_DEPTH),
+            grd = oilCanvas.createRadialGradient(
+                oil[i].x, oil[i].y, 2, oil[i].x, oil[i].y, OIL_DOT_RADIUS*2
+            );
+        grd.addColorStop(0, `rgba(0,0,0,${ alpha/2 + 0.25 })`); // ${ 0.5 - alpha/3 }
+        grd.addColorStop(1, `rgba(0,0,0,0)`);
+        tempCanvas.beginPath();
+        tempCanvas.fillStyle = grd;
+        tempCanvas.arc(oil[i].x, oil[i].y, OIL_DOT_RADIUS*2, 0, 2*Math.PI);
+        tempCanvas.fill();
+        tempCanvas.closePath();
+        // oil[i].element.style.left = `${ oil[i].x }px`;
+        // oil[i].element.style.top = `${ oil[i].y }px`;
     }
+    let imageData = tempCanvas.getImageData(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
+    for (let i = 0; i < imageData.data.length; i += 4) {
+        if (imageData.data[i + 3] < 128) {
+            imageData.data[i + 3] = 0;
+        } else {
+            // imageData.data[i + 3] = imageData.data[i];
+            imageData.data[i+3] = 255;
+        }
+    }
+    oilCanvas.putImageData(imageData, 0, 0);
 }
 
 function redrawCursor () {
