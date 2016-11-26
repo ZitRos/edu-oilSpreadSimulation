@@ -7,7 +7,7 @@ has a pseudo-random algorithm of flow and terrain generation.
 
 # Preview
 
-![Screenshot](https://cloud.githubusercontent.com/assets/4989256/19352636/30e63422-9169-11e6-94be-360fde0f6251.png)
+![Screenshot](https://cloud.githubusercontent.com/assets/4989256/20642458/e03fe3a2-b417-11e6-9120-6ecafb839738.png)
 
 ![Gif](https://cloud.githubusercontent.com/assets/4989256/19385408/0bc20582-9217-11e6-8062-65ce60928434.gif)
 
