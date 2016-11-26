@@ -4,7 +4,6 @@ const
     STEP = 20,
     W = Math.floor(FIELD_WIDTH/STEP),
     H = Math.floor(FIELD_HEIGHT/STEP),
-    oil = [], // [] { x, y, h, m } // x, y, height, mass
     FPS = 50,
     MAX_DEPTH = 200,
     MAX_HEIGHT = 200,
@@ -15,6 +14,8 @@ const
 
 let lastMousePos = { x: 0, y: 0 },
     field = [], // [][] { dx, dy, h },
+    oil = [], // x, y, height, mass
+    currentMapName = "",
     layerStream = null,
     layerOil = null,
     streamCanvas = null,
@@ -30,7 +31,10 @@ let lastMousePos = { x: 0, y: 0 },
     bottomGradientBlock = null,
     simSpeedSlider = null,
     simSpeedLabel = null,
-    tempCanvas = null;
+    tempCanvas = null,
+    mapNameInput = null,
+    mapsSelect = null,
+    deleteButton = null;
 
 let SIM_SPEED = 0.05;
 
@@ -88,6 +92,9 @@ function init () {
     layersBlock = document.getElementById("layers");
     simSpeedLabel = document.getElementById(`simSpeed`);
     simSpeedSlider = document.getElementById("simSpeedSlider");
+    mapNameInput = document.getElementById("mapName");
+    mapsSelect = document.getElementById("maps");
+    deleteButton = document.getElementById("deleteMapButton");
     simSpeedSlider.addEventListener(`input`, updateSimSpeed);
     updateSimSpeed();
 
@@ -122,6 +129,22 @@ function init () {
     heightsBlock.appendChild(layerHeights);
     redrawStreams();
     redrawTerrain();
+    updateMapsSelect();
+
+    document.getElementById("saveMapButton").addEventListener("click", () => {
+        if (!mapNameInput.value)
+            return;
+        saveMap(mapNameInput.value);
+    });
+
+    mapsSelect.addEventListener("change", () => {
+        loadMap((mapsSelect.options[mapsSelect.selectedIndex] || {}).value);
+    });
+    deleteButton.addEventListener("click", () => {
+        if (!currentMapName)
+            return;
+        deleteMap(currentMapName);
+    });
 
     // layerOil.style.opacity = 0;
     // layerOil.style.zIndex = 10000;
@@ -212,7 +235,7 @@ function step (deltaTime) { // delta time should be 1 if FPS = real FPS.
             let d = distance(oil[i], oil[j]);
             if (d > OIL_DOT_RADIUS) continue;
             let dir = Math.atan2(-(oil[j].x - oil[i].x), (oil[j].y - oil[i].y)),
-                v = (OIL_DOT_RADIUS - d)/1.8,
+                v = (OIL_DOT_RADIUS - d) / (2 - SIM_SPEED),
                 vx = v * Math.cos(dir),
                 vy = v * Math.sin(dir);
             oil[i].x += vx;
@@ -231,6 +254,66 @@ function step (deltaTime) { // delta time should be 1 if FPS = real FPS.
     redrawOil();
     redrawHeights(lastMousePos.y);
     redrawCursor();
+}
+
+function saveMap (mapName = "New Map") {
+    let maps = JSON.parse(localStorage.getItem("maps")) || {};
+    maps[mapName] = {
+        field: field,
+        oil: oil
+    };
+    localStorage.setItem("maps", JSON.stringify(maps));
+    currentMapName = mapName;
+    updateMapsSelect();
+}
+
+function updateMapsSelect () {
+    let maps = JSON.parse(localStorage.getItem("maps"));
+    mapsSelect.textContent = "";
+    let selected = false;
+    for (let map in maps) {
+        let opt = document.createElement("option");
+        opt.setAttribute("value", map);
+        opt.textContent = map;
+        if (currentMapName === map) {
+            opt.setAttribute("selected", "");
+            selected = true;
+        }
+        mapsSelect.appendChild(opt);
+    }
+    if (!selected) {
+        let opt = document.createElement("option");
+        opt.textContent = "Select a map...";
+        opt.setAttribute("selected", "");
+        mapsSelect.appendChild(opt);
+    }
+    deleteButton.disabled = !currentMapName;
+}
+
+function loadMap (map = "New Map") {
+    let maps = JSON.parse(localStorage.getItem("maps"));
+    if (!maps || !maps[map])
+        return;
+    field = maps[map].field;
+    oil = maps[map].oil;
+    currentMapName = map;
+    mapNameInput.value = map;
+    updateMapsSelect();
+    redrawTerrain();
+    redrawStreams();
+}
+
+function deleteMap (mapName) {
+    let maps = JSON.parse(localStorage.getItem("maps"));
+    if (!maps || !maps[mapName])
+        return;
+    delete maps[mapName];
+    localStorage.setItem("maps", JSON.stringify(maps));
+    if (currentMapName === mapName) {
+        currentMapName = "";
+        mapNameInput.value = "New Map";
+    }
+    updateMapsSelect();
 }
 
 function addOil (x, y) {
@@ -258,6 +341,7 @@ function distance (oil1, oil2) {
 }
 
 function redrawStreams () {
+    streamCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
     streamCanvas.strokeStyle = `black`;
     streamCanvas.fillStyle = `black`;
     for (let y = 0; y < H; y++) {
@@ -363,7 +447,6 @@ function redrawTerrain () {
     terrainCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
     let col, h,
         imageData = terrainCanvas.getImageData(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
-    console.log(imageData);
     for (let y = 0; y < FIELD_HEIGHT - STEP; y++) {
         for (let x = 0; x < FIELD_WIDTH - STEP; x++) {
             // terrainCanvas.beginPath();

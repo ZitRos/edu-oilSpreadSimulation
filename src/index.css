@@ -97,6 +97,10 @@ html, body {
     filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#03ad14', endColorstr='#f0f9ff',GradientType=0 ); /* IE6-9 */
 }
 
+form {
+    cursor: default;
+}
+
 .panel {
     display: block;
     position: absolute;
