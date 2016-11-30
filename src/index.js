@@ -10,12 +10,23 @@ const
     MAX_SPEED = STEP,
     HEIGHTS_BLOCK_HEIGHT = 150,
     LIGHT_AMOUNT = 0.8,
-    OIL_DOT_RADIUS = 9;
+    OIL_DOT_RADIUS = 9,
+    OBJECT_TYPE_CENTER = 0,
+    OBJECT_TYPE_VIEW = 1,
+    OBJECT_TYPE_TECH = 2,
+    BOAT_SPEED = 4, // px / normal step
+    OBJECT_TYPE_NAMES = {
+        0: "center",
+        1: "office",
+        2: "tech"
+    };
 
 let lastMousePos = { x: 0, y: 0 },
     field = [], // [][] { dx, dy, h },
-    oil = [], // x, y, height, mass
+    oil = [], // [] { x, y, height, mass }
     currentMapName = "",
+    objects = [], // [] { x, y, type, variation, boats }
+    boats = [],
     layerStream = null,
     layerOil = null,
     streamCanvas = null,
@@ -34,16 +45,19 @@ let lastMousePos = { x: 0, y: 0 },
     tempCanvas = null,
     mapNameInput = null,
     mapsSelect = null,
-    deleteButton = null;
+    deleteButton = null,
+    objectsContainer = null;
 
 let SIM_SPEED = 0.05;
 
 // pseudo-random field generation
 function generateField () {
-    const RANDOM_FACTOR = 3, VORTEX_FACTOR = 5, DEEP_FACTOR = 40, HEIGHT_FACTOR = 5;
+    const RANDOM_FACTOR = 3, VORTEX_FACTOR = 5, DEEP_FACTOR = 40, HEIGHT_FACTOR = 30;
     let dirFactor = Math.random() > 0.5 ? 1 : -1,
         dir = Math.random(),
         field = [];
+
+    // generate landscape
     for (let i = 0; i < H; i++) {
         field[i] = [];
         for (let j = 0; j < W; j++) {
@@ -52,15 +66,18 @@ function generateField () {
                 c = (field[i] || [])[j - 1] || {};
             dirFactor = Math.random() > 0.95 ? -dirFactor : dirFactor;
             dir += 0.3 * dirFactor * (Math.random() + 0.3);
-            if (a.dx || b.dx || c.dx) {
-                let valDX = ((a.dx || 0) + (b.dx || 0) + (c.dx || 0)) / (!!a.dx + !!b.dx + !!c.dx),
-                    valDY = ((a.dy || 0) + (b.dy || 0) + (c.dy || 0)) / (!!a.dy + !!b.dy + !!c.dy),
-                    valH = ((a.h || 0) + (b.h || 0) + (c.h || 0)) / (!!a.h + !!b.h + !!c.h),
+            if (typeof a.dx !== "undefined" || typeof b.dx !== "undefined"
+                || typeof c.dx !== "undefined") {
+                let valDX = ((a.dx || 0) + (b.dx || 0) + (c.dx || 0)) / ((typeof a.dx !== "undefined") + (typeof b.dx !== "undefined") + (typeof c.dx !== "undefined")),
+                    valDY = ((a.dy || 0) + (b.dy || 0) + (c.dy || 0)) / ((typeof a.dy !== "undefined") + (typeof b.dy !== "undefined") + (typeof c.dy !== "undefined")),
+                    valH = ((a.h || 0) + (b.h || 0) + (c.h || 0)) / ((typeof a.h !== "undefined") + (typeof b.h !== "undefined") + (typeof c.h !== "undefined")),
                     crFactor = valH > -10 ? DEEP_FACTOR : HEIGHT_FACTOR,
                     h = Math.min(Math.max(-MAX_HEIGHT,
                         valH
                         + (Math.random()*crFactor*2 - crFactor)
                     ), MAX_DEPTH);
+                // console.log(valDX, a.dx, b.dx, c.dx);
+                // console.log(crFactor, valH, h);
                 // console.log(valDX, valDY);
                 field[i][j] = {
                     dx: h <= 0 ? 0 : Math.min(Math.max(-MAX_SPEED,
@@ -84,7 +101,173 @@ function generateField () {
             }
         }
     }
+
     return field;
+}
+
+function generateObjects (field) {
+
+    let possibleObjectPlacement = [],
+        bField = [];
+
+    function closestobjectDistance (x, y) {
+        let d = Infinity;
+        for (let i = 0; i < possibleObjectPlacement.length; i++) {
+            let dd = Math.sqrt(
+                Math.pow(possibleObjectPlacement[i].x - x, 2)
+                + Math.pow(possibleObjectPlacement[i].y - y, 2)
+            );
+            if (dd < d)
+                d = dd;
+        }
+        return d;
+    }
+
+    function spawnRandomObject (x, y, type = Math.floor(Math.random() * 3)) {
+        return {
+            x: x,
+            y: y,
+            type: type,
+            variation: type === OBJECT_TYPE_CENTER
+                ? Math.floor(Math.random() * 2)
+                : type === OBJECT_TYPE_VIEW
+                ? 0
+                : type === OBJECT_TYPE_TECH
+                ? Math.floor(Math.random() * 5)
+                : 0,
+            boats: 2
+        };
+    }
+
+    // place objects
+    for (let y = 1; y < H - 1; y++) {
+        for (let x = 1; x < W - 1; x++) {
+            if (field[y][x].h < 0 && field[y][x - 1].h < 0 && field[y][x + 1].h < 0
+                && field[y + 1][x].h < 0 && field[y - 1][x].h < 0 && field[y - 1][x - 1].h < 0
+                && field[y - 1][x + 1].h < 0 && field[y + 1][x - 1].h < 0
+                && field[y + 1][x + 1].h < 0
+                && closestobjectDistance(x * STEP, y * STEP) > STEP * 1.5) {
+                possibleObjectPlacement.push({
+                    x: x * STEP,
+                    y: y * STEP
+                });
+            }
+        }
+    }
+
+    let objects = Math.min(possibleObjectPlacement.length, 2
+            + Math.floor(Math.random() * (2 + Math.sqrt(possibleObjectPlacement.length)))),
+        atLeastOfTypes = [OBJECT_TYPE_TECH, OBJECT_TYPE_CENTER];
+
+    for (let i = 0; i < objects; i++) {
+        let pos = possibleObjectPlacement.splice(
+            Math.floor(Math.random() * possibleObjectPlacement.length),
+            1
+        )[0];
+        if (pos)
+            bField.push(spawnRandomObject(pos.x, pos.y, atLeastOfTypes.pop()));
+    }
+
+    return bField;
+
+}
+
+function predict () {
+
+    let SPEED_UP = 15,
+        VERTICALS = 20,
+        HORIZONTALS = 10,
+        ALLOWANCE = 50, // initial px
+        oilClone = JSON.parse(JSON.stringify(oil)),
+        tech = objects.filter(o => o.type === OBJECT_TYPE_TECH),
+        time = -ALLOWANCE,
+        timetable = [],
+        boatsAvailable = true;
+
+    function getCells (oil) {
+        let map = {},
+            flat = [],
+            hr = FIELD_WIDTH / HORIZONTALS,
+            vt = FIELD_HEIGHT / VERTICALS;
+        for (let o of oil) {
+            let ys = Math.floor(o.y / FIELD_HEIGHT * VERTICALS),
+                xs = Math.floor(o.x / FIELD_WIDTH * HORIZONTALS),
+                p = `${ys}-${xs}`;
+            if (!map.hasOwnProperty(p))
+                map[p] = {
+                    n: 0,
+                    x: Math.round(xs * hr + hr / 2),
+                    y: Math.round(ys * vt + vt / 2),
+                    oil: []
+                };
+            map[p].n++;
+            map[p].oil.push(o);
+        }
+        for (let i in map) {
+            flat.push(map[i]);
+        }
+        flat.sort((a, b) => a.n < b.n ? 1 : -1);
+        return flat;
+    }
+
+    function filterOil (oil, toFilter) {
+        return oil.filter((o) => toFilter.indexOf(o) === -1);
+    }
+
+    while (oilClone.length && boatsAvailable) {
+        time += SPEED_UP * SIM_SPEED * 20; // todo: select coefficients
+        step(oilClone, SPEED_UP);
+        getCells(oilClone).forEach((cell) => {
+            let noBoats = true;
+            for (let dock of tech) {
+                if (dock.boats <= 0)
+                    continue;
+                noBoats = false;
+                // console.log(time, distanceXY(dock, cell) - time * BOAT_SPEED);
+                if (distanceXY(dock, cell) - time * BOAT_SPEED > 0)
+                    continue;
+                dock.boats--;
+                oilClone = filterOil(oilClone, cell.oil);
+                timetable.push({
+                    time: time,
+                    oil: cell.n,
+                    dock: dock,
+                    target: cell
+                });
+                break;
+            }
+            if (noBoats)
+                boatsAvailable = false;
+        });
+    }
+
+    return timetable;
+
+}
+
+function updateBoat (boat = {}) {
+    boat.element.style.left = `${ boat.x }px`;
+    boat.element.style.top = `${ boat.y }px`;
+    boat.element.style.transform = `rotate(${boat.dir}rad)`;
+}
+
+function spawnBoats (prediction) {
+
+    for (let event of prediction) {
+        let el = document.createElement(`div`),
+            boat = {
+                x: event.dock.x,
+                y: event.dock.y,
+                target: event.target,
+                element: el,
+                dir: Math.atan2(event.target.y - event.dock.y, event.target.x - event.dock.x)
+            };
+        el.className = `object boat var${ Math.floor(Math.random() * 2) }`;
+        updateBoat(boat);
+        boats.push(boat);
+        objectsContainer.appendChild(el);
+    }
+
 }
 
 function init () {
@@ -98,8 +281,9 @@ function init () {
     simSpeedSlider.addEventListener(`input`, updateSimSpeed);
     updateSimSpeed();
 
-    // oilContainer = document.getElementById("oil");
+    objectsContainer = document.getElementById("objects");
     field = generateField();
+    objects = generateObjects(field);
 
     layersBlock.style.width = `${ (W - 1) * STEP }px`;
     layersBlock.style.height = `${ (H - 1) * STEP }px`;
@@ -116,20 +300,20 @@ function init () {
     layerStream = getNewCanvas();
     layerStream.style.opacity = 0.3;
     layerTerrain = getNewCanvas();
+    layerTerrain.className = "terrainCanvas";
     terrainCanvas = layerTerrain.getContext("2d");
     streamCanvas = layerStream.getContext("2d");
     layerHeights = getNewCanvas(FIELD_WIDTH, HEIGHTS_BLOCK_HEIGHT);
     heightsCanvas = layerHeights.getContext("2d");
     layerOil = getNewCanvas();
     layerOil.style.filter = "blur(1px)";
+    layerOil.className = "layerOil";
     oilCanvas = layerOil.getContext("2d");
     layersBlock.appendChild(layerTerrain);
     layersBlock.appendChild(layerStream);
     layersBlock.appendChild(layerOil);
     heightsBlock.appendChild(layerHeights);
-    redrawStreams();
-    redrawTerrain();
-    updateMapsSelect();
+    updateAll();
 
     document.getElementById("saveMapButton").addEventListener("click", () => {
         if (!mapNameInput.value)
@@ -147,7 +331,7 @@ function init () {
     });
 
     // layerOil.style.opacity = 0;
-    // layerOil.style.zIndex = 10000;
+    layerOil.style.zIndex = 10000;
     layerOil.addEventListener(`mousedown`, (e) => {
         creatingOil = true;
         lastMousePos.x = e.offsetX;
@@ -156,16 +340,22 @@ function init () {
     layerOil.addEventListener(`mousemove`, (e) => {
         lastMousePos.x = e.offsetX;
         lastMousePos.y = e.offsetY;
+        redrawHeights(lastMousePos.y);
     });
     layerOil.addEventListener(`mouseup`, (e) => {
         creatingOil = false;
         lastMousePos.x = e.offsetX;
         lastMousePos.y = e.offsetY;
+        redrawHeights(lastMousePos.y);
+    });
+    document.querySelector("#fireButton").addEventListener("click", (e) => {
+        e.preventDefault();
+        spawnBoats(predict());
     });
     let time = Date.now();
     setInterval(() => {
         let now = Date.now();
-        step((now - time) / (1000 / FPS));
+        step(oil, (now - time) / (1000 / FPS));
         time = now;
     }, 1000 / FPS);
 
@@ -174,7 +364,7 @@ function init () {
 function getMedianPoint (x, y) {
     let sx = Math.floor(x / STEP),
         sy = Math.floor(y / STEP);
-    if (sx * STEP === x && sy * STEP === y)
+    if (sx * STEP === x && sy * STEP === y || !field[sy + 1])
         return { dx: field[sy][sx].dx, dy: field[sy][sx].dy, h: field[sy][sx].h };
     let isBottomTriangle = x + y > (sx + 1) * STEP + sy * STEP,
         sxA = isBottomTriangle ? sx + 1 : sx,
@@ -219,48 +409,61 @@ function getMedianPoint (x, y) {
     }
 }
 
-function step (deltaTime) { // delta time should be 1 if FPS = real FPS.
-    if (creatingOil)
-        addOil(lastMousePos.x, lastMousePos.y);
-    for (let i = 0; i < oil.length; i++) {
-        let median = getMedianPoint(oil[i].x, oil[i].y);
-        if (median.h > oil[i].h) {
-            oil[i].x += median.dx * deltaTime * SIM_SPEED;
-            oil[i].y += median.dy * deltaTime * SIM_SPEED;
-            oil[i].h += oil[i].m * (Math.random() / 5 + 0.2) * (SIM_SPEED * 10);
-            oil[i].h = Math.min(median.h, oil[i].h);
+function step (oilLayer, deltaTime) { // delta time should be 1 if FPS = real FPS.
+    let real = oilLayer === oil;
+    for (let i = 0; i < oilLayer.length; i++) {
+        let median = getMedianPoint(oilLayer[i].x, oilLayer[i].y);
+        if (median.h > oilLayer[i].h) {
+            oilLayer[i].x += median.dx * deltaTime * SIM_SPEED;
+            oilLayer[i].y += median.dy * deltaTime * SIM_SPEED;
+            oilLayer[i].h += oilLayer[i].m * (Math.random() / 5 + 0.2) * (SIM_SPEED * 10);
+            oilLayer[i].h = Math.min(median.h, oilLayer[i].h);
         }
-        for (let j = 0; j < oil.length; j++) {
+        for (let j = 0; j < oilLayer.length; j++) {
             if (i === j) continue;
-            let d = distance(oil[i], oil[j]);
+            let d = distanceXYH(oilLayer[i], oilLayer[j]);
             if (d > OIL_DOT_RADIUS) continue;
-            let dir = Math.atan2(-(oil[j].x - oil[i].x), (oil[j].y - oil[i].y)),
+            let dir = Math.atan2(-(oilLayer[j].x - oilLayer[i].x), (oilLayer[j].y - oilLayer[i].y)),
                 v = (OIL_DOT_RADIUS - d) / (2 - SIM_SPEED),
                 vx = v * Math.cos(dir),
                 vy = v * Math.sin(dir);
-            oil[i].x += vx;
-            oil[i].y += vy;
-            oil[j].x -= vx;
-            oil[j].y -= vy;
+            oilLayer[i].x += vx;
+            oilLayer[i].y += vy;
+            oilLayer[j].x -= vx;
+            oilLayer[j].y -= vy;
         }
-        if (oil[i].x <= 1 || oil[i].y <= 1
-            || oil[i].x + STEP >= FIELD_WIDTH - 1 || oil[i].y + STEP >= FIELD_HEIGHT - 1) {
-            // if (oil[i].element.parentNode)
-            //     oil[i].element.parentNode.removeChild(oil[i].element);
-            oil.splice(i, 1);
+        if (oilLayer[i].x <= 1 || oilLayer[i].y <= 1
+            || oilLayer[i].x + STEP >= FIELD_WIDTH - 1
+            || oilLayer[i].y + STEP >= FIELD_HEIGHT - 1) {
+            oilLayer.splice(i, 1);
             i--;
         }
     }
-    redrawOil();
-    redrawHeights(lastMousePos.y);
-    redrawCursor();
+    if (real) {
+        for (let boat of boats) {
+            let dir = Math.atan2(boat.target.y - boat.y, boat.target.x - boat.x),
+                distance = distanceXY(boat, boat.target);
+            // console.log(distance);
+            if (distance < BOAT_SPEED)
+                continue;
+            boat.x += BOAT_SPEED * Math.cos(dir);
+            boat.y += BOAT_SPEED * Math.sin(dir);
+            boat.dir = dir;
+            updateBoat(boat);
+        }
+        if (creatingOil)
+            addOil(lastMousePos.x, lastMousePos.y);
+        redrawOil();
+        redrawCursor();
+    }
 }
 
 function saveMap (mapName = "New Map") {
     let maps = JSON.parse(localStorage.getItem("maps")) || {};
     maps[mapName] = {
         field: field,
-        oil: oil
+        oil: oil,
+        objects: objects
     };
     localStorage.setItem("maps", JSON.stringify(maps));
     currentMapName = mapName;
@@ -294,13 +497,12 @@ function loadMap (map = "New Map") {
     let maps = JSON.parse(localStorage.getItem("maps"));
     if (!maps || !maps[map])
         return;
-    field = maps[map].field;
-    oil = maps[map].oil;
+    field = maps[map].field || [];
+    oil = maps[map].oil || [];
+    objects = maps[map].objects || [];
     currentMapName = map;
     mapNameInput.value = map;
-    updateMapsSelect();
-    redrawTerrain();
-    redrawStreams();
+    updateAll();
 }
 
 function deleteMap (mapName) {
@@ -331,12 +533,37 @@ function addOil (x, y) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+function updateAll () {
+    updateMapsSelect();
+    redrawTerrain();
+    redrawStreams();
+    redrawobjects();
+}
+
+function redrawobjects () {
+
+    objectsContainer.textContent = "";
+    for (let b of objects) {
+        let el = document.createElement(`div`);
+        el.className = `object ${ OBJECT_TYPE_NAMES[b.type] } var${ b.variation }`;
+        el.style.left = `${ b.x }px`;
+        el.style.top = `${ b.y }px`;
+        el.style.zIndex = b.y;
+        objectsContainer.appendChild(el);
+    }
+
+}
+
 function updateSimSpeed () {
     SIM_SPEED = simSpeedSlider.value / 100;
     simSpeedLabel.textContent = Math.round(SIM_SPEED * 100);
 }
 
-function distance (oil1, oil2) {
+function distanceXY (oil1, oil2) {
+    return Math.sqrt(Math.pow(oil1.x - oil2.x, 2) + Math.pow(oil1.y - oil2.y, 2));
+}
+
+function distanceXYH (oil1, oil2) {
     return Math.sqrt(Math.pow(oil1.x - oil2.x, 2) + Math.pow(oil1.y - oil2.y, 2) + Math.pow(oil1.h - oil2.h, 2));
 }
 
@@ -449,26 +676,6 @@ function redrawTerrain () {
         imageData = terrainCanvas.getImageData(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
     for (let y = 0; y < FIELD_HEIGHT - STEP; y++) {
         for (let x = 0; x < FIELD_WIDTH - STEP; x++) {
-            // terrainCanvas.beginPath();
-            // terrainCanvas.moveTo(x * STEP, y * STEP);
-            // terrainCanvas.lineTo((x + 1) * STEP, y * STEP);
-            // terrainCanvas.lineTo((x + 1) * STEP, (y + 1) * STEP);
-            // col = Math.round(
-            //     128 * getMedianPoint(x * STEP + STEP * 0.75, y * STEP + STEP * 0.25).h / MAX_DEPTH
-            // );
-            // terrainCanvas.fillStyle = `rgb(${ 255 - col * 2 },${ 255 - col },255)`;
-            // terrainCanvas.closePath();
-            // terrainCanvas.fill();
-            // terrainCanvas.beginPath();
-            // terrainCanvas.moveTo(x * STEP, y * STEP);
-            // terrainCanvas.lineTo(x * STEP, (y + 1) * STEP);
-            // terrainCanvas.lineTo((x + 1) * STEP, (y + 1) * STEP);
-            // col = Math.round(
-            //     128 * getMedianPoint(x * STEP + STEP * 0.25, y * STEP + STEP * 0.75).h / MAX_DEPTH
-            // );
-            // terrainCanvas.fillStyle = `rgb(${ 255 - col * 2 },${ 255 - col },255)`;
-            // terrainCanvas.closePath();
-            // terrainCanvas.fill();
             h = getMedianPoint(x, y).h;
             if (h > 0) {
                 col = Math.round(128 * h / MAX_DEPTH);
@@ -487,23 +694,6 @@ function redrawTerrain () {
     }
 
     terrainCanvas.putImageData(imageData, 0, 0);
-    // terrainCanvas.putImageData(id, 0, 0);
-    // console.log(FIELD_WIDTH - STEP, FIELD_HEIGHT - STEP);
-    // let id = terrainCanvas.getImageData(0, 0, 400, FIELD_HEIGHT),
-    //     d = id.data;
-    // // terrainCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
-    // for (let y = 0; y < 400; y++) {
-    //     for (let x = 0; x < 400; x++) {
-    //         let p = y*(400) + x,
-    //             h = getMedianPoint(x, y).h,
-    //             col = Math.round(128 * h / MAX_DEPTH);
-    //         d[p] = 255 - col * 2;
-    //         d[p + 1] = 255 - col;
-    //         d[p + 2] = 255;
-    //         d[p + 3] = 255;
-    //     }
-    // }
-    // terrainCanvas.putImageData(id, 0, 0);
 }
 
 function getNewCanvas (WW = (W - 1) * STEP, HH = (H - 1) * STEP) {
