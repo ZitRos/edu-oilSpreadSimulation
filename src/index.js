@@ -2,6 +2,7 @@ const
     FIELD_WIDTH = 1000,
     FIELD_HEIGHT = 500,
     STEP = 20,
+    ALLOWANCE = 0, // additional time for boats to start
     W = Math.floor(FIELD_WIDTH/STEP),
     H = Math.floor(FIELD_HEIGHT/STEP),
     FPS = 50,
@@ -14,7 +15,7 @@ const
     OBJECT_TYPE_CENTER = 0,
     OBJECT_TYPE_VIEW = 1,
     OBJECT_TYPE_TECH = 2,
-    BOAT_SPEED = 4, // px / normal step
+    BOAT_SPEED = 60, // px / normal step
     OBJECT_TYPE_NAMES = {
         0: "center",
         1: "office",
@@ -46,7 +47,10 @@ let lastMousePos = { x: 0, y: 0 },
     mapNameInput = null,
     mapsSelect = null,
     deleteButton = null,
-    objectsContainer = null;
+    objectsContainer = null,
+    layerDebug = null,
+    debugCanvas = null,
+    configurationBlock = null;
 
 let SIM_SPEED = 0.05;
 
@@ -174,14 +178,14 @@ function generateObjects (field) {
 
 function predict () {
 
-    let SPEED_UP = 15,
+    let SPEED_UP = 10,
         VERTICALS = 20,
         HORIZONTALS = 10,
-        ALLOWANCE = 50, // initial px
         oilClone = JSON.parse(JSON.stringify(oil)),
         tech = objects.filter(o => o.type === OBJECT_TYPE_TECH),
         time = -ALLOWANCE,
         timetable = [],
+        debug = [],
         boatsAvailable = true;
 
     function getCells (oil) {
@@ -196,8 +200,8 @@ function predict () {
             if (!map.hasOwnProperty(p))
                 map[p] = {
                     n: 0,
-                    x: Math.round(xs * hr + hr / 2),
-                    y: Math.round(ys * vt + vt / 2),
+                    x: Math.round(xs * hr),
+                    y: Math.round(ys * vt),
                     oil: []
                 };
             map[p].n++;
@@ -215,8 +219,9 @@ function predict () {
     }
 
     while (oilClone.length && boatsAvailable) {
-        time += SPEED_UP * SIM_SPEED * 20; // todo: select coefficients
-        step(oilClone, SPEED_UP);
+        let temp, tempTT = [];
+        time += SPEED_UP * SIM_SPEED; // todo: select coefficients
+        step(oilClone, SPEED_UP * 2.5);
         getCells(oilClone).forEach((cell) => {
             let noBoats = true;
             for (let dock of tech) {
@@ -228,18 +233,33 @@ function predict () {
                     continue;
                 dock.boats--;
                 oilClone = filterOil(oilClone, cell.oil);
-                timetable.push({
+                timetable.push(temp = {
                     time: time,
                     oil: cell.n,
                     dock: dock,
-                    target: cell
+                    target: {
+                        x: cell.x + (FIELD_WIDTH / HORIZONTALS / 2),
+                        y: cell.y + (FIELD_HEIGHT / VERTICALS / 2)
+                    }
                 });
+                tempTT.push(temp);
                 break;
             }
             if (noBoats)
                 boatsAvailable = false;
         });
+        debug.push({
+            time: time,
+            oil: oilClone.slice().map(oil => { return {
+                x: oil.x,
+                y: oil.y
+            } }),
+            docks: tech.filter(t => typeof t.boats === "number" ? t.boats : 2 > 0),
+            timetable: tempTT
+        });
     }
+
+    animateDebug(debug);
 
     return timetable;
 
@@ -278,6 +298,7 @@ function init () {
     mapNameInput = document.getElementById("mapName");
     mapsSelect = document.getElementById("maps");
     deleteButton = document.getElementById("deleteMapButton");
+    configurationBlock = document.getElementById("configurationBlock");
     simSpeedSlider.addEventListener(`input`, updateSimSpeed);
     updateSimSpeed();
 
@@ -299,10 +320,13 @@ function init () {
     tempCanvas = getNewCanvas().getContext("2d");
     layerStream = getNewCanvas();
     layerStream.style.opacity = 0.3;
+    layerDebug = getNewCanvas();
+    layerDebug.style.zIndex = 9999999999;
     layerTerrain = getNewCanvas();
     layerTerrain.className = "terrainCanvas";
     terrainCanvas = layerTerrain.getContext("2d");
     streamCanvas = layerStream.getContext("2d");
+    debugCanvas = layerDebug.getContext("2d");
     layerHeights = getNewCanvas(FIELD_WIDTH, HEIGHTS_BLOCK_HEIGHT);
     heightsCanvas = layerHeights.getContext("2d");
     layerOil = getNewCanvas();
@@ -312,6 +336,7 @@ function init () {
     layersBlock.appendChild(layerTerrain);
     layersBlock.appendChild(layerStream);
     layersBlock.appendChild(layerOil);
+    layersBlock.appendChild(layerDebug);
     heightsBlock.appendChild(layerHeights);
     updateAll();
 
@@ -330,19 +355,18 @@ function init () {
         deleteMap(currentMapName);
     });
 
-    // layerOil.style.opacity = 0;
     layerOil.style.zIndex = 10000;
-    layerOil.addEventListener(`mousedown`, (e) => {
+    layerDebug.addEventListener(`mousedown`, (e) => {
         creatingOil = true;
         lastMousePos.x = e.offsetX;
         lastMousePos.y = e.offsetY;
     });
-    layerOil.addEventListener(`mousemove`, (e) => {
+    layerDebug.addEventListener(`mousemove`, (e) => {
         lastMousePos.x = e.offsetX;
         lastMousePos.y = e.offsetY;
         redrawHeights(lastMousePos.y);
     });
-    layerOil.addEventListener(`mouseup`, (e) => {
+    layerDebug.addEventListener(`mouseup`, (e) => {
         creatingOil = false;
         lastMousePos.x = e.offsetX;
         lastMousePos.y = e.offsetY;
@@ -444,10 +468,10 @@ function step (oilLayer, deltaTime) { // delta time should be 1 if FPS = real FP
             let dir = Math.atan2(boat.target.y - boat.y, boat.target.x - boat.x),
                 distance = distanceXY(boat, boat.target);
             // console.log(distance);
-            if (distance < BOAT_SPEED)
+            if (distance < BOAT_SPEED * SIM_SPEED)
                 continue;
-            boat.x += BOAT_SPEED * Math.cos(dir);
-            boat.y += BOAT_SPEED * Math.sin(dir);
+            boat.x += SIM_SPEED * BOAT_SPEED * Math.cos(dir);
+            boat.y += SIM_SPEED * BOAT_SPEED * Math.sin(dir);
             boat.dir = dir;
             updateBoat(boat);
         }
@@ -532,6 +556,51 @@ function addOil (x, y) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+function updateConfiguration () {
+
+}
+
+function animateDebug (debugArray) {
+
+    let int,
+        time = -ALLOWANCE,
+        SPEED_UP = 2;
+
+    int = setInterval(() => {
+        debugCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
+        while (debugArray.length && debugArray[0].time < time)
+            debugArray.splice(0, 1);
+        if (debugArray.length < 1) {
+            clearInterval(int);
+            return;
+        }
+        let segment = debugArray[0];
+        for (let oil of segment.oil) {
+            debugCanvas.beginPath();
+            debugCanvas.fillStyle = `gray`;
+            debugCanvas.arc(oil.x, oil.y, OIL_DOT_RADIUS, 0, 2*Math.PI);
+            debugCanvas.closePath();
+            debugCanvas.fill();
+        }
+        for (let dock of segment.docks) {
+            debugCanvas.beginPath();
+            debugCanvas.strokeStyle = `red`;
+            debugCanvas.arc(dock.x, dock.y, Math.max(segment.time * BOAT_SPEED, 0), 0, 2*Math.PI);
+            debugCanvas.closePath();
+            debugCanvas.stroke();
+        }
+        for (let event of segment.timetable) {
+            debugCanvas.beginPath();
+            debugCanvas.fillStyle = `red`;
+            debugCanvas.arc(event.target.x, event.target.y, OIL_DOT_RADIUS * 2, 0, 2*Math.PI);
+            debugCanvas.closePath();
+            debugCanvas.fill();
+        }
+        time += SIM_SPEED * SPEED_UP;
+    }, Math.round(1000/FPS));
+
+}
 
 function updateAll () {
     updateMapsSelect();
