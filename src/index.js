@@ -3,8 +3,8 @@ const
     FIELD_HEIGHT = 500,
     STEP = 20,
     ALLOWANCE = 0, // additional time for boats to start
-    W = Math.floor(FIELD_WIDTH/STEP),
-    H = Math.floor(FIELD_HEIGHT/STEP),
+    W = Math.floor(FIELD_WIDTH / STEP),
+    H = Math.floor(FIELD_HEIGHT / STEP),
     FPS = 50,
     MAX_DEPTH = 200,
     MAX_HEIGHT = 200,
@@ -26,7 +26,7 @@ let lastMousePos = { x: 0, y: 0 },
     field = [], // [][] { dx, dy, h },
     oil = [], // [] { x, y, height, mass }
     currentMapName = "",
-    objects = [], // [] { x, y, type, variation, boats }
+    objects = [], // [] { x, y, type, variation, boats, [element] }
     boats = [],
     layerStream = null,
     layerOil = null,
@@ -139,7 +139,8 @@ function generateObjects (field) {
                 : type === OBJECT_TYPE_TECH
                 ? Math.floor(Math.random() * 5)
                 : 0,
-            boats: 2
+            boats: 2,
+            boatSpeed: 60
         };
     }
 
@@ -229,7 +230,7 @@ function predict () {
                     continue;
                 noBoats = false;
                 // console.log(time, distanceXY(dock, cell) - time * BOAT_SPEED);
-                if (distanceXY(dock, cell) - time * BOAT_SPEED > 0)
+                if (distanceXY(dock, cell) - time * (dock.boatSpeed || BOAT_SPEED) > 0)
                     continue;
                 dock.boats--;
                 oilClone = filterOil(oilClone, cell.oil);
@@ -280,7 +281,8 @@ function spawnBoats (prediction) {
                 y: event.dock.y,
                 target: event.target,
                 element: el,
-                dir: Math.atan2(event.target.y - event.dock.y, event.target.x - event.dock.x)
+                dir: Math.atan2(event.target.y - event.dock.y, event.target.x - event.dock.x),
+                speed: event.dock.boatSpeed || BOAT_SPEED
             };
         el.className = `object boat var${ Math.floor(Math.random() * 2) }`;
         updateBoat(boat);
@@ -468,10 +470,10 @@ function step (oilLayer, deltaTime) { // delta time should be 1 if FPS = real FP
             let dir = Math.atan2(boat.target.y - boat.y, boat.target.x - boat.x),
                 distance = distanceXY(boat, boat.target);
             // console.log(distance);
-            if (distance < BOAT_SPEED * SIM_SPEED)
+            if (distance < boat.speed * SIM_SPEED)
                 continue;
-            boat.x += SIM_SPEED * BOAT_SPEED * Math.cos(dir);
-            boat.y += SIM_SPEED * BOAT_SPEED * Math.sin(dir);
+            boat.x += SIM_SPEED * boat.speed * Math.cos(dir);
+            boat.y += SIM_SPEED * boat.speed * Math.sin(dir);
             boat.dir = dir;
             updateBoat(boat);
         }
@@ -559,6 +561,65 @@ function addOil (x, y) {
 
 function updateConfiguration () {
 
+    let i = 0;
+    while (configurationBlock.firstChild)
+        configurationBlock.removeChild(configurationBlock.firstChild);
+    let d = document.createElement(`div`),
+        table = document.createElement(`table`),
+        tr = document.createElement(`tr`),
+        td1 = document.createElement(`th`),
+        td2 = document.createElement(`th`),
+        td3 = document.createElement(`th`);
+    d.className = `supplyConfig`;
+    d.appendChild(table);
+    table.appendChild(tr);
+    td1.textContent = "Supply Base #";
+    td2.textContent = "Boats";
+    td3.textContent = "Boat Speed";
+    tr.appendChild(td1);
+    tr.appendChild(td2);
+    tr.appendChild(td3);
+    for (let o of objects) {
+        if (o.type !== OBJECT_TYPE_TECH)
+            continue;
+        let label = document.createElement(`span`),
+            val = document.createElement(`input`),
+            speedInp = document.createElement(`input`),
+            tr = document.createElement(`tr`);
+        label.textContent = i;
+        val.setAttribute(`type`, `number`);
+        val.value = o.boats;
+        speedInp.setAttribute(`type`, `number`);
+        speedInp.value = o.boatSpeed || BOAT_SPEED;
+        td1 = document.createElement(`td`);
+        td2 = document.createElement(`td`);
+        td3 = document.createElement(`td`);
+        tr.appendChild(td1);
+        tr.appendChild(td2);
+        tr.appendChild(td3);
+        td1.appendChild(label);
+        td2.appendChild(val);
+        td3.appendChild(speedInp);
+        table.appendChild(tr);
+        val.addEventListener(`input`, () => {
+            o.boats = parseInt(val.value) || 0;
+        });
+        speedInp.addEventListener(`input`, () => {
+            speedInp.value = o.boatSpeed = parseInt(speedInp.value) || BOAT_SPEED;
+        });
+        tr.addEventListener(`mouseenter`, () => {
+            if (!o.element)
+                return;
+            o.element.classList.add("selected");
+        });
+        tr.addEventListener(`mouseleave`, () => {
+            if (!o.element)
+                return;
+            o.element.classList.remove("selected");
+        });
+        i++;
+    }
+    configurationBlock.appendChild(d);
 }
 
 function animateDebug (debugArray) {
@@ -586,7 +647,7 @@ function animateDebug (debugArray) {
         for (let dock of segment.docks) {
             debugCanvas.beginPath();
             debugCanvas.strokeStyle = `red`;
-            debugCanvas.arc(dock.x, dock.y, Math.max(segment.time * BOAT_SPEED, 0), 0, 2*Math.PI);
+            debugCanvas.arc(dock.x, dock.y, Math.max(segment.time * dock.boatSpeed, 0), 0, 2*Math.PI);
             debugCanvas.closePath();
             debugCanvas.stroke();
         }
@@ -606,14 +667,16 @@ function updateAll () {
     updateMapsSelect();
     redrawTerrain();
     redrawStreams();
-    redrawobjects();
+    redrawObjects();
+    updateConfiguration();
 }
 
-function redrawobjects () {
+function redrawObjects () {
 
     objectsContainer.textContent = "";
     for (let b of objects) {
         let el = document.createElement(`div`);
+        b.element = el;
         el.className = `object ${ OBJECT_TYPE_NAMES[b.type] } var${ b.variation }`;
         el.style.left = `${ b.x }px`;
         el.style.top = `${ b.y }px`;
