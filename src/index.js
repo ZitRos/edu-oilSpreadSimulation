@@ -2,20 +2,21 @@ const
     FIELD_WIDTH = 1000,
     FIELD_HEIGHT = 500,
     STEP = 20,
-    ALLOWANCE = 0, // additional time for boats to start
     W = Math.floor(FIELD_WIDTH / STEP),
     H = Math.floor(FIELD_HEIGHT / STEP),
     FPS = 50,
     MAX_DEPTH = 200,
     MAX_HEIGHT = 200,
-    MAX_SPEED = STEP,
+    MAX_STREAM_SPEED = STEP,
     HEIGHTS_BLOCK_HEIGHT = 150,
     LIGHT_AMOUNT = 0.8,
     OIL_DOT_RADIUS = 9,
     OBJECT_TYPE_CENTER = 0,
     OBJECT_TYPE_VIEW = 1,
     OBJECT_TYPE_TECH = 2,
-    BOAT_SPEED = 60, // px / normal step
+    TIME_SPEEDING_K = 15,
+    BOAT_SPEED = 36, // px / normal step
+    FUEL_CONSUMING = 1,
     OBJECT_TYPE_NAMES = {
         0: "center",
         1: "office",
@@ -23,6 +24,8 @@ const
     };
 
 let lastMousePos = { x: 0, y: 0 },
+    METERS_PER_SQUARE = 100,
+    ALLOWANCE = 0, // additional time for boats to start
     field = [], // [][] { dx, dy, h },
     oil = [], // [] { x, y, height, mass }
     currentMapName = "",
@@ -50,7 +53,9 @@ let lastMousePos = { x: 0, y: 0 },
     objectsContainer = null,
     layerDebug = null,
     debugCanvas = null,
-    configurationBlock = null;
+    configurationBlock = null,
+    computedConfig = null,
+    coordBlock = null;
 
 let SIM_SPEED = 0.05;
 
@@ -84,22 +89,22 @@ function generateField () {
                 // console.log(crFactor, valH, h);
                 // console.log(valDX, valDY);
                 field[i][j] = {
-                    dx: h <= 0 ? 0 : Math.min(Math.max(-MAX_SPEED,
+                    dx: h <= 0 ? 0 : Math.min(Math.max(-MAX_STREAM_SPEED,
                             valDX
                             + (Math.random()*RANDOM_FACTOR*2 - RANDOM_FACTOR)
                             + VORTEX_FACTOR*Math.cos(dir))
-                        , MAX_SPEED) * (valH < MAX_DEPTH / 20 ? 0.1 : 1),
-                    dy: h <= 0 ? 0 : Math.min(Math.max(-MAX_SPEED,
+                        , MAX_STREAM_SPEED) * (valH < MAX_DEPTH / 20 ? 0.1 : 1),
+                    dy: h <= 0 ? 0 : Math.min(Math.max(-MAX_STREAM_SPEED,
                             valDY
                             + (Math.random()*RANDOM_FACTOR*2 - RANDOM_FACTOR)
                             + VORTEX_FACTOR*Math.sin(dir))
-                        , MAX_SPEED) * (valH < MAX_DEPTH / 20 ? 0.1 : 1),
+                        , MAX_STREAM_SPEED) * (valH < MAX_DEPTH / 20 ? 0.1 : 1),
                     h: h
                 }
             } else {
                 field[i][j] = {
-                    dx: Math.random() * MAX_SPEED * 2 - MAX_SPEED,
-                    dy: Math.random() * MAX_SPEED * 2 - MAX_SPEED,
+                    dx: Math.random() * MAX_STREAM_SPEED * 2 - MAX_STREAM_SPEED,
+                    dy: Math.random() * MAX_STREAM_SPEED * 2 - MAX_STREAM_SPEED,
                     h: Math.random() * (MAX_DEPTH + MAX_HEIGHT) - MAX_HEIGHT
                 }
             }
@@ -140,7 +145,8 @@ function generateObjects (field) {
                 ? Math.floor(Math.random() * 5)
                 : 0,
             boats: 2,
-            boatSpeed: 60
+            fuelConsuming: FUEL_CONSUMING,
+            boatSpeed: BOAT_SPEED
         };
     }
 
@@ -230,7 +236,7 @@ function predict () {
                     continue;
                 noBoats = false;
                 // console.log(time, distanceXY(dock, cell) - time * BOAT_SPEED);
-                if (distanceXY(dock, cell) - time * (dock.boatSpeed || BOAT_SPEED) > 0)
+                if (distanceXY(dock, cell) - time * speedToPixels(dock.boatSpeed || BOAT_SPEED) > 0)
                     continue;
                 dock.boats--;
                 oilClone = filterOil(oilClone, cell.oil);
@@ -261,6 +267,7 @@ function predict () {
     }
 
     animateDebug(debug);
+    printTimetable(timetable);
 
     return timetable;
 
@@ -301,7 +308,15 @@ function init () {
     mapsSelect = document.getElementById("maps");
     deleteButton = document.getElementById("deleteMapButton");
     configurationBlock = document.getElementById("configurationBlock");
+    computedConfig = document.getElementById("computedConfig");
+    coordBlock = document.getElementById("coord");
     simSpeedSlider.addEventListener(`input`, updateSimSpeed);
+    document.getElementById(`mpsq`).addEventListener(`change`, (e) => {
+        METERS_PER_SQUARE = (e.target || e.srcElement).value;
+    });
+    document.getElementById(`delay`).addEventListener(`change`, (e) => {
+        ALLOWANCE = (e.target || e.srcElement).value;
+    });
     updateSimSpeed();
 
     objectsContainer = document.getElementById("objects");
@@ -366,6 +381,7 @@ function init () {
     layerDebug.addEventListener(`mousemove`, (e) => {
         lastMousePos.x = e.offsetX;
         lastMousePos.y = e.offsetY;
+        updateMouseScreenPos();
         redrawHeights(lastMousePos.y);
     });
     layerDebug.addEventListener(`mouseup`, (e) => {
@@ -470,10 +486,10 @@ function step (oilLayer, deltaTime) { // delta time should be 1 if FPS = real FP
             let dir = Math.atan2(boat.target.y - boat.y, boat.target.x - boat.x),
                 distance = distanceXY(boat, boat.target);
             // console.log(distance);
-            if (distance < boat.speed * SIM_SPEED)
+            if (distance < speedToPixels(boat.speed) * SIM_SPEED)
                 continue;
-            boat.x += SIM_SPEED * boat.speed * Math.cos(dir);
-            boat.y += SIM_SPEED * boat.speed * Math.sin(dir);
+            boat.x += SIM_SPEED * deltaTime * speedToPixels(boat.speed) * Math.cos(dir);
+            boat.y += SIM_SPEED * deltaTime * speedToPixels(boat.speed) * Math.sin(dir);
             boat.dir = dir;
             updateBoat(boat);
         }
@@ -559,6 +575,31 @@ function addOil (x, y) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+function updateMouseScreenPos () {
+    coordBlock.textContent = `(${ lastMousePos.x }; ${ lastMousePos.y })`;
+}
+
+function printTimetable (tt = []) {
+
+    while (computedConfig.firstChild)
+        computedConfig.removeChild(computedConfig.firstChild);
+
+    let d = document.createElement(`div`);
+    d.textContent = `Pre-requirements:`;
+    computedConfig.appendChild(d);
+    for (let event of tt) {
+        let d = document.createElement(`div`);
+        d.textContent = `Need 1 boat from dock #${ 
+            typeof event.dock.i !== "undefined" ? event.dock.i : "?" } to vanish ${ 
+            event.oil } kg of oil with total ${ Math.ceil(
+                pixelsToKm(distanceXY(event.dock, event.target))
+                * (event.dock.fuelConsuming || FUEL_CONSUMING) * 2 // two-way
+            * 100) / 100 } liters of fuel.`;
+        computedConfig.appendChild(d);
+    }
+
+}
+
 function updateConfiguration () {
 
     let i = 0;
@@ -569,43 +610,56 @@ function updateConfiguration () {
         tr = document.createElement(`tr`),
         td1 = document.createElement(`th`),
         td2 = document.createElement(`th`),
-        td3 = document.createElement(`th`);
+        td3 = document.createElement(`th`),
+        td4 = document.createElement(`th`);
     d.className = `supplyConfig`;
     d.appendChild(table);
     table.appendChild(tr);
     td1.textContent = "Supply Base #";
     td2.textContent = "Boats";
-    td3.textContent = "Boat Speed";
+    td3.textContent = "Boat Speed (km/h)";
+    td4.textContent = "Fuel Consuming";
     tr.appendChild(td1);
     tr.appendChild(td2);
     tr.appendChild(td3);
+    tr.appendChild(td4);
     for (let o of objects) {
         if (o.type !== OBJECT_TYPE_TECH)
             continue;
         let label = document.createElement(`span`),
             val = document.createElement(`input`),
             speedInp = document.createElement(`input`),
+            fcInp = document.createElement(`input`),
             tr = document.createElement(`tr`);
+        o.i = i;
         label.textContent = i;
         val.setAttribute(`type`, `number`);
         val.value = o.boats;
         speedInp.setAttribute(`type`, `number`);
         speedInp.value = o.boatSpeed || BOAT_SPEED;
+        fcInp.setAttribute(`type`, `number`);
+        fcInp.value = o.fuelConsuming || FUEL_CONSUMING;
         td1 = document.createElement(`td`);
         td2 = document.createElement(`td`);
         td3 = document.createElement(`td`);
+        td4 = document.createElement(`td`);
         tr.appendChild(td1);
         tr.appendChild(td2);
         tr.appendChild(td3);
+        tr.appendChild(td4);
         td1.appendChild(label);
         td2.appendChild(val);
         td3.appendChild(speedInp);
+        td4.appendChild(fcInp);
         table.appendChild(tr);
         val.addEventListener(`input`, () => {
             o.boats = parseInt(val.value) || 0;
         });
+        fcInp.addEventListener(`input`, () => {
+            o.fuelConsuming = parseFloat(val.value) || FUEL_CONSUMING;
+        });
         speedInp.addEventListener(`input`, () => {
-            speedInp.value = o.boatSpeed = parseInt(speedInp.value) || BOAT_SPEED;
+            o.boatSpeed = parseFloat(speedInp.value) || BOAT_SPEED;
         });
         tr.addEventListener(`mouseenter`, () => {
             if (!o.element)
@@ -626,7 +680,7 @@ function animateDebug (debugArray) {
 
     let int,
         time = -ALLOWANCE,
-        SPEED_UP = 2;
+        SPEED_UP = 7;
 
     int = setInterval(() => {
         debugCanvas.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
@@ -647,7 +701,7 @@ function animateDebug (debugArray) {
         for (let dock of segment.docks) {
             debugCanvas.beginPath();
             debugCanvas.strokeStyle = `red`;
-            debugCanvas.arc(dock.x, dock.y, Math.max(segment.time * dock.boatSpeed, 0), 0, 2*Math.PI);
+            debugCanvas.arc(dock.x, dock.y, Math.max(segment.time * speedToPixels(dock.boatSpeed), 0), 0, 2*Math.PI);
             debugCanvas.closePath();
             debugCanvas.stroke();
         }
@@ -862,6 +916,22 @@ function canvasArrow (context, fromx, fromy, tox, toy) {
     context.moveTo(tox, toy);
     context.lineTo(tox-head*Math.cos(angle+Math.PI/6),toy-head*Math.sin(angle+Math.PI/6));
     context.stroke();
+}
+
+function getConvertCoef () {
+    return METERS_PER_SQUARE * 0.001 * 3600 / (2 * TIME_SPEEDING_K * STEP);
+}
+
+function speedToPixels (speed) {
+    return speed / getConvertCoef();
+}
+
+function pixelsToSpeed (px) {
+    return px * getConvertCoef();
+}
+
+function pixelsToKm (px) {
+    return 0.001 * px * METERS_PER_SQUARE / STEP;
 }
 
 if (document.readyState !== "loading")

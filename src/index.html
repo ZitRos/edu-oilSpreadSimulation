@@ -14,8 +14,28 @@
         <div>
             <div id="layers">
                 <div class="rightPanel">
-                    <div>Configuration</div>
+                    <div>General Configuration</div>
+                    <div id="genConf">
+                        <p>
+                            <label>
+                                Meters per square
+                                <input id="mpsq" type="number" value="100"/>
+                            </label>
+                        </p>
+                        <p>
+                            <label>
+                                Consider delay
+                                <input id="delay" type="number" value="0"/>
+                                min
+                            </label>
+                        </p>
+                    </div>
+                    <p style="margin-top: 20px;">Supply Configuration</p>
                     <div id="configurationBlock">
+
+                    </div>
+                    <div style="margin-top: 20px;">Computed Configuration</div>
+                    <div id="computedConfig">
 
                     </div>
                 </div>
@@ -23,7 +43,7 @@
                 <form class="panel">
                     <button id="fireButton">Fire!</button>
                     <label>
-                        Simulation Speed:
+                        Simulation:
                         <input id="simSpeedSlider" type="range" name="points" value="5" min="0" max="100">
                         (x<span id="simSpeed">5</span>)
                     </label>
@@ -37,6 +57,7 @@
                         <input type="text" value="New Map" id="mapName"/>
                     </label>
                     <input type="button" value="Save" id="saveMapButton"/>
+                    <span id="coord">(0; 0)</span>
                 </form>
                 <div id="heights">
                     <div id="topGradient"></div>

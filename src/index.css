@@ -144,6 +144,11 @@ form {
     vertical-align: middle;
 }
 
+#genConf {
+    font-weight: normal;
+    margin-top: 20px;
+}
+
 #fireButton {
     background: red;
     padding: 5px;
@@ -157,11 +162,22 @@ form {
 
 #configurationBlock .supplyConfig {
     position: relative;
+    font-weight: normal;
 }
 
 #configurationBlock .supplyConfig table {
     width: 100%;
     box-sizing: border-box;
+}
+
+#computedConfig {
+    font-weight: normal;
+    font-size: 11px;
+}
+
+#coord {
+    display: inline-block;
+    min-width: 100px;
 }
 
 /*#oil {*/
