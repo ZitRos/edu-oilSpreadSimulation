@@ -140,6 +140,13 @@ form {
     text-shadow: 1px 1px white;
 }
 
+#timer {
+    position: absolute;
+    bottom: -2px;
+    width: 100%;
+    font-size: 10px;
+}
+
 .panel input, .panel select {
     vertical-align: middle;
 }
@@ -177,7 +184,7 @@ form {
 
 #coord {
     display: inline-block;
-    min-width: 100px;
+    min-width: 90px;
 }
 
 /*#oil {*/

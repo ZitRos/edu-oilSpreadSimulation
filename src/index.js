@@ -31,6 +31,7 @@ let lastMousePos = { x: 0, y: 0 },
     currentMapName = "",
     objects = [], // [] { x, y, type, variation, boats, [element] }
     boats = [],
+    counterStartTime = null,
     layerStream = null,
     layerOil = null,
     streamCanvas = null,
@@ -186,8 +187,8 @@ function generateObjects (field) {
 function predict () {
 
     let SPEED_UP = 10,
-        VERTICALS = 20,
-        HORIZONTALS = 10,
+        VERTICALS = 10,
+        HORIZONTALS = 20,
         oilClone = JSON.parse(JSON.stringify(oil)),
         tech = objects.filter(o => o.type === OBJECT_TYPE_TECH),
         time = -ALLOWANCE,
@@ -268,6 +269,9 @@ function predict () {
 
     animateDebug(debug);
     printTimetable(timetable);
+
+    if (!counterStartTime)
+        counterStartTime = new Date();
 
     return timetable;
 
@@ -497,6 +501,7 @@ function step (oilLayer, deltaTime) { // delta time should be 1 if FPS = real FP
             addOil(lastMousePos.x, lastMousePos.y);
         redrawOil();
         redrawCursor();
+        updateTime();
     }
 }
 
@@ -656,7 +661,7 @@ function updateConfiguration () {
             o.boats = parseInt(val.value) || 0;
         });
         fcInp.addEventListener(`input`, () => {
-            o.fuelConsuming = parseFloat(val.value) || FUEL_CONSUMING;
+            o.fuelConsuming = parseFloat(fcInp.value) || FUEL_CONSUMING;
         });
         speedInp.addEventListener(`input`, () => {
             o.boatSpeed = parseFloat(speedInp.value) || BOAT_SPEED;
@@ -932,6 +937,17 @@ function pixelsToSpeed (px) {
 
 function pixelsToKm (px) {
     return 0.001 * px * METERS_PER_SQUARE / STEP;
+}
+
+function updateTime () {
+    if (!counterStartTime)
+        return;
+    let dif = (Date.now() - counterStartTime.getTime()) / 1000 * TIME_SPEEDING_K * SIM_SPEED * 100,
+        hrs = Math.floor(dif / 60 / 60),
+        min = Math.floor((dif % (hrs * 60 * 60 || Infinity)) / 60),
+        sec = Math.floor(dif % (hrs * 60 || 60));
+    document.getElementById(`timer`).textContent =
+        `${ ("0"+hrs).slice(-2) }:${ ("0"+min).slice(-2) }:${ ("0"+sec).slice(-2) }`;
 }
 
 if (document.readyState !== "loading")
