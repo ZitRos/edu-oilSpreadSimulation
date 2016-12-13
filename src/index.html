@@ -24,6 +24,12 @@
                         </p>
                         <p>
                             <label>
+                                Number of heavy oil parts
+                                <input id="heavyPts" type="number" value="20" max="100" min="0"/>%
+                            </label>
+                        </p>
+                        <p>
+                            <label>
                                 Consider delay
                                 <input id="delay" type="number" value="0"/>
                                 min
@@ -39,7 +45,11 @@
 
                     </div>
                 </div>
-                <div class="sub">Click to spread oil!</div>
+                <div class="sub">
+                    <input type="file" id="loadFile"/>
+                    <label for="loadFile" class="button">Upload Saved JSON</label>
+                    <input type="button" id="downloadFile" value="Download As JSON"/>
+                </div>
                 <form class="panel">
                     <button id="fireButton">Fire!</button>
                     <label>

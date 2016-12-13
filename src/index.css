@@ -52,17 +52,25 @@ html, body {
     padding: .3em;
 }
 
-input {
+input, .button {
     background: transparent;
     border: 1px solid gray;
     border-radius: 4px;
+    font-weight: normal;
+    padding: .3em;
+    font-size: 12px;
+    box-sizing: border-box;
 }
 
-input[type=button] {
+input[type=file] {
+    display: none;
+}
+
+input[type=button], .button {
     cursor: pointer;
 }
 
-input[type=button]:hover {
+input[type=button]:hover, .button {
     background: rgba(250, 255, 31, 0.11);
 }
 
@@ -131,7 +139,8 @@ form {
 .panel {
     display: block;
     position: absolute;
-    top: -40px;
+    top: -35px;
+    z-index: 9;
     left: 0;
     right: 0;
     height: 35px;

@@ -9,7 +9,6 @@ const
     MAX_HEIGHT = 200,
     MAX_STREAM_SPEED = STEP,
     HEIGHTS_BLOCK_HEIGHT = 150,
-    LIGHT_AMOUNT = 0.8,
     OIL_DOT_RADIUS = 9,
     OBJECT_TYPE_CENTER = 0,
     OBJECT_TYPE_VIEW = 1,
@@ -25,6 +24,7 @@ const
 
 let lastMousePos = { x: 0, y: 0 },
     METERS_PER_SQUARE = 100,
+    LIGHT_AMOUNT = 0.8,
     ALLOWANCE = 0, // additional time for boats to start
     field = [], // [][] { dx, dy, h },
     oil = [], // [] { x, y, height, mass }
@@ -321,6 +321,24 @@ function init () {
     document.getElementById(`delay`).addEventListener(`change`, (e) => {
         ALLOWANCE = (e.target || e.srcElement).value * TIME_SPEEDING_K * SIM_SPEED;
     });
+    document.getElementById(`heavyPts`).addEventListener(`change`, (e) => {
+        LIGHT_AMOUNT = (100 - (e.target || e.srcElement).value) / 100;
+    });
+    document.getElementById(`downloadFile`).addEventListener(`click`, () => {
+        downloadJSONFile(currentMapName, {
+            field: field,
+            oil: oil,
+            objects: objects
+        });
+    });
+    document.getElementById(`loadFile`).addEventListener(`change`, (event) => {
+        let reader = new FileReader(),
+            file = event.target.files[0];
+        reader.onload = (event) => {
+            loadMap(file.name.replace(/\.json$/, ``), JSON.parse(event.target.result));
+        };
+        reader.readAsText(event.target.files[0]);
+    });
     updateSimSpeed();
 
     objectsContainer = document.getElementById("objects");
@@ -540,8 +558,8 @@ function updateMapsSelect () {
     deleteButton.disabled = !currentMapName;
 }
 
-function loadMap (map = "New Map") {
-    let maps = JSON.parse(localStorage.getItem("maps"));
+function loadMap (map = "New Map", mapJSON = null) {
+    let maps = mapJSON ? { [map]: mapJSON } : JSON.parse(localStorage.getItem("maps"));
     if (!maps || !maps[map])
         return;
     field = maps[map].field || [];
@@ -950,6 +968,14 @@ function updateTime () {
         sec = Math.floor(dif % (hrs * 60 || 60));
     document.getElementById(`timer`).textContent =
         `${ ("0"+hrs).slice(-2) }:${ ("0"+min).slice(-2) }:${ ("0"+sec).slice(-2) }`;
+}
+
+function downloadJSONFile (name = "Map", json = {}) {
+    let a = document.createElement("a"),
+        file = new Blob([JSON.stringify(json)], { type: "text/json" });
+    a.href = URL.createObjectURL(file);
+    a.download = name || "Map.json";
+    a.click();
 }
 
 if (document.readyState !== "loading")
