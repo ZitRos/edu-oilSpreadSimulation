@@ -319,7 +319,7 @@ function init () {
         METERS_PER_SQUARE = (e.target || e.srcElement).value;
     });
     document.getElementById(`delay`).addEventListener(`change`, (e) => {
-        ALLOWANCE = (e.target || e.srcElement).value;
+        ALLOWANCE = (e.target || e.srcElement).value * TIME_SPEEDING_K * SIM_SPEED;
     });
     updateSimSpeed();
 
@@ -590,16 +590,18 @@ function printTimetable (tt = []) {
         computedConfig.removeChild(computedConfig.firstChild);
 
     let d = document.createElement(`div`);
-    d.textContent = `Pre-requirements:`;
+    d.style.margin = `1em 0`;
+    d.textContent = `Requirements:`;
     computedConfig.appendChild(d);
     for (let event of tt) {
-        let d = document.createElement(`div`);
-        d.textContent = `Need 1 boat from dock #${ 
+        let d = document.createElement(`div`),
+            dis = pixelsToKm(distanceXY(event.dock, event.target));
+        d.innerHTML = `Need 1 boat from dock #${ 
             typeof event.dock.i !== "undefined" ? event.dock.i : "?" } to vanish ${ 
-            event.oil } kg of oil with total ${ Math.ceil(
-                pixelsToKm(distanceXY(event.dock, event.target))
-                * (event.dock.fuelConsuming || FUEL_CONSUMING) * 2 // two-way
-            * 100) / 100 } liters of fuel.`;
+            event.oil } kg of oil at (${ event.target.x }, ${ event.target.y }) with total ${
+            Math.ceil(
+                dis * (event.dock.fuelConsuming || FUEL_CONSUMING) * 2 // two-way
+            * 100) / 100 } liters of fuel (${ Math.ceil(dis * 100) / 100 }<sub>km</sub> x${ event.dock.fuelConsuming || FUEL_CONSUMING }<sup>liters</sup>/<sub>km</sub> x2).`;
         computedConfig.appendChild(d);
     }
 
